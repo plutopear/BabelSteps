@@ -44,3 +44,27 @@ Working notes. Items marked *(verify)* have not been confirmed on a real machine
 - Confirm Scribe's current export formats and privacy claims from its own documentation.
 - Survey other local-first options (e.g., ShareX-style tools, Snagit, Greenshot, and open-source step recorders) for prior art on keystroke grouping and export.
 - Check whether Steps Recorder's output format can be read by other tools (useful for Q2).
+
+## 4. Windows code signing (researched 2026-11-02)
+
+Source: research by a delegated agent from Microsoft and vendor pages. Microsoft eligibility and SmartScreen facts are well sourced (pages dated 2026-05 to 2026-10). Non-Microsoft prices come from cached or reseller pages and are **unverified**. Re-check before buying.
+
+| Option | Cost | Who can use it | Notes |
+| --- | --- | --- | --- |
+| Microsoft Artifact Signing (Azure) | Basic $9.99/month (about $120/yr), 5,000 signatures, $0.005 per extra | Individuals located in the **US or Canada** only; identity validation takes 1 to 20 business days | No hardware token, works in CI. Not Store-eligible. SmartScreen trust builds over time |
+| SignPath Foundation | Free | Open-source projects with an OSI license, MFA for the signing team, manual approval per release, and a published signing policy | The Foundation becomes the publisher. Whether individuals can apply is unconfirmed (terms page was a draft) |
+| SSL.com individual (IV) certificate | About $129/yr, plus a cloud-HSM fee | Individuals, any country | Price unverified |
+| Certum open-source certificate | About €69 | Individuals | Requires a hardware card and reader. Price unverified |
+| DigiCert OV via resellers | About $380 to $580/yr | Needs more validation | Unverified. EV (about $400+) no longer bypasses SmartScreen |
+| Unsigned | Free | Anyone | Users see "Windows protected your PC" and must click through. Smart App Control may block it. Hook-based utilities are often flagged by antivirus |
+
+**Facts that apply to every paid option**
+- Since June 2023, OV/EV keys must be on a hardware token or cloud HSM.
+- Certificate validity has been shortened (about 460 days from early 2026 per third-party sources; exact date unconfirmed).
+- Changing publisher identity resets SmartScreen reputation, so keep one identity across releases.
+- Expect SmartScreen warnings for several weeks after each new release even when signed.
+- Sign both the app executable and the installer.
+
+**Tauri 2 integration:** local certificates use `bundle.windows.certificateThumbprint`, `digestAlgorithm`, and `timestampUrl`. Custom tools (such as the Artifact Signing CLI) use `signCommand` with `%1` as the file path. The Tauri page's OV guide only covers pre-June-2023 certificates.
+
+**Recommendation:** US or Canada resident: Artifact Signing Basic. Anywhere else: apply to SignPath Foundation first, then SSL.com IV as the fallback. Decision deferred to M3, and it depends on the owner's country (open question Q16).

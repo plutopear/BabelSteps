@@ -41,7 +41,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 ## M3 — Windows release
 
-- Installer, code signing, and the trust-signal pages (Privacy doc §5).
+- Installer, code signing, and the trust-signal pages (Privacy doc §5). Signing options are researched in `research/baseline-and-competitors.md` §4; the choice depends on the owner's country (Q16).
 - Accessibility pass on the app (C6) and themes (C5).
 - Antivirus false-positive submissions.
 - Documentation and user guide.

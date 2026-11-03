@@ -64,6 +64,8 @@ This changes default templates, default titles, and whether comments or redactio
 
 **Q15. Browser extension.** Keep out of v1 (recommended), or include a local-only extension for better web element names?
 
+**Q16. Country of residence (for code signing).** Microsoft's low-cost Artifact Signing is available to individuals in the US and Canada only. Where are you based? Not needed until M3.
+
 ## Answered
 
 Decisions from 2026-11-02:
