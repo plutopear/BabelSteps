@@ -9,21 +9,25 @@ Working notes. Items marked *(verify)* have not been confirmed on a real machine
 - File version: 10.0.26100.8521 (Windows 11, build 26100 line)
 - Product name: Microsoft Windows Operating System. File description: Steps Recorder.
 
-**Behavior we believe is true (verify)**
-- Records a screenshot on each mouse click and marks the click location.
-- Lets the user add comments during a recording, and pause and resume.
-- Output is a `.zip` containing an MHTML (`.mht`) document and image files, which opens in a browser.
-- Keeps a limited number of recent screenshots, configurable *(verify default and range)*.
-- Records the full desktop. Window-only capture *(verify)*.
-- Keystroke or text-entry capture: *unknown*. Must be checked by recording a session that types text and inspecting the output.
+**Verified by recording and inspecting output (2026-11-02)**
+- **Output:** a `.zip` holding one MHTML file (`Recording_YYYYMMDD_HHMM.mht`). The MHTML holds one main HTML page, 62 small HTML fragments, a stylesheet, and one JPEG per step.
+- **Images:** full monitor at native resolution (5120×1440), about 390 KB each as JPEG. A 31-step recording was 16.9 MB as MHTML and 10.3 MB zipped.
+- **Screenshot limit:** the default kept only the last 25 screenshots of a longer session. `/maxsc 100` raised it.
+- **Click marker:** a bright green rectangle around the clicked element, not a marker at the click point.
+- **Timing:** the image shows the state **after** the click. 21 of 21 clicks on a window that reacts on press showed the reacted state.
+- **Step text:** `User left click on "Save (button)" in "Window title"`, and the same for right click. Each step has a number and timestamp.
+- **Typed text:** never recorded. The file says so itself ("Passwords or any other text you typed were not recorded, except for function and shortcut keys"). A typing burst becomes one step, `User keyboard input on "User name: (edit)" in "Window" [...]`. The typed strings appear nowhere in the file. Modifier keys are shown, for example `[Ctrl-Ctrl]` and `[... Win]`. How it words a shortcut such as Ctrl+A was not established: one sent during a typing burst did not get its own step.
+- **Document layout:** an intro with a privacy reminder, links to review steps, a slide show, and additional details. Each step has Previous and Next links.
+- **Summary line:** `Recorded Steps: 31, Missed Steps: 0, Other Errors: 0`.
+- **Additional details fields:** Recording Session, Recorded Steps, Operating System, Program, UI Elements.
+- **Command line:** `/start`, `/output`, `/sc`, `/maxsc`, `/gui`, `/recordpid`, and `/stop` all worked. It must be launched through the shell. Direct process creation fails with error 740.
+- **Permissions:** the manifest sets `level="asInvoker"` and `uiAccess="true"`.
 
-**Hands-on verification checklist (M0)**
-1. Record a session with: a click on a button, a text entry, a keyboard shortcut, a comment, a pause, and a second monitor.
-2. Save the output. Note the file name, size, and contents of the zip. Note the `.mht` structure.
-3. Open the output in a browser. Note how each step is described, and whether text entry appears.
-4. Check any settings UI for screenshot count and other options. Note all defaults.
-5. Test with an elevated window and a UAC prompt. Record what is captured.
-6. Record each observation in this file with a date.
+**Still unverified**
+- Comments, pause, and the settings dialog, which are in its window UI. Launched here with `/gui 0`.
+- Second monitor behavior.
+- Elevated windows and UAC prompts.
+- Whether its window can limit capture to one window. Everything recorded here was full monitor.
 
 ## 2. Scribe (competitor)
 

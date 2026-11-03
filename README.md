@@ -2,7 +2,7 @@
 
 A modern, fast, local-first successor to Windows Steps Recorder. It starts with 1:1 feature parity, then adds Scribe-style capture of clicks and keystrokes into an editable, readable document that exports to PDF and Markdown.
 
-**Status:** Planning (Phase 0). No application code yet. Stack decided (Rust + Tauri 2); audience is IT/helpdesk first, then end-user training. Decisions are recorded in `docs/06-open-questions.md`. M0 (spikes) is next.
+**Status:** M0 spikes done; M1 (Windows capture parity) is next. There is no usable app yet. Stack decided (Rust + Tauri 2); audience is IT/helpdesk first, then end-user training. Decisions are recorded in `docs/06-open-questions.md`, and spike results in `research/m0-spike-results.md`.
 
 ## Principles
 
@@ -21,5 +21,6 @@ A modern, fast, local-first successor to Windows Steps Recorder. It starts with 
 | `docs/05-roadmap.md` | Milestones and exit criteria |
 | `docs/06-open-questions.md` | Decisions needed before development (start here) |
 | `research/baseline-and-competitors.md` | What we know about Steps Recorder and Scribe, and what still needs hands-on verification |
-
-Code will go in `src/` (or per-platform folders) after the plan is approved.
+| `research/m0-spike-results.md` | Measured results from the Windows capture spikes |
+| `core/` | Document model and Markdown export, shared across platforms |
+| `spikes/win-capture/` | Throwaway Windows capture experiments |

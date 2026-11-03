@@ -64,13 +64,15 @@ This changes default templates, default titles, and whether comments or redactio
 
 **Q15. Browser extension.** Keep out of v1 (recommended), or include a local-only extension for better web element names?
 
+**Q17. Admin windows and code signing.** Steps Recorder uses a Windows permission called `uiAccess`, which is designed to let accessibility tools work with admin windows without running as admin. It needs a signed app installed in a protected folder such as Program Files. Without it, BabelSteps is expected to miss clicks in admin tools unless it is itself run as admin. This raises the value of a signature for IT users. Plan: test this in M1, then decide. Not needed until then.
+
 ## Answered
 
 Decisions from 2026-11-02:
 
 - **Q1 Stack:** Rust core + Tauri 2 + web UI. The owner is not a developer and wants cross-platform from day one to avoid a later rewrite, so Claude owns the technical choices.
 - **Q2 Parity:** Same workflow and features with our own file format. No `.mht` compatibility or import for now.
-- **Q3 Capture timing:** Screenshot of the state just before the click is the step image.
+- **Q3 Capture timing:** Screenshot of the state just before the click is the step image. M0 found that Steps Recorder shows the state after the click, so this is a deliberate difference from it.
 - **Q4 Keystrokes:** Off by default, enabled per recording with a visible indicator. Password fields are never recorded.
 - **Q5 Audience:** IT/helpdesk first, end-user training second. See requirements section E.
 - **Q6 Editing:** Block-based WYSIWYG editor with edit titles, descriptions, reorder, delete, notes, and redaction. Markdown compatibility is important: documents round-trip to and from Markdown.
@@ -85,4 +87,4 @@ Decisions from 2026-11-02:
 
 - **Q16 Code signing:** Owner is in the United States and does **not** want to pay for a certificate. Plan: apply to SignPath Foundation (free for open source) before the first public release, and make unsigned distribution workable as the fallback (see roadmap M3). Paid options such as Microsoft Artifact Signing (about $120/yr, available to US individuals) stay on the shelf in case the owner changes their mind.
 
-Nothing is blocking M0 now.
+Open but not blocking: Q17, to be decided after the M1 test.

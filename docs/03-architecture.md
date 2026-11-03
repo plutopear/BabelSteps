@@ -36,14 +36,15 @@
 ## 3. Windows capture pipeline (v1)
 
 - **Input:** low-level hooks (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`) on a dedicated thread with its own message loop. Hook callbacks must return almost immediately or Windows drops the hook, so callbacks only timestamp the event and push it to a lock-free queue.
-- **Screenshots:** Windows.Graphics.Capture for the chosen monitor or window, with GDI `BitBlt` as a fallback. Capture work runs off the hook thread.
-- **Element identity:** UI Automation `ElementFromPoint` gives the control name, control type, automation ID, and `IsPassword`. These calls can be slow, so they run asynchronously and never on the hook thread.
+- **Screenshots:** Windows.Graphics.Capture runs continuously during a recording. Each monitor keeps 3 recent frames in GPU memory, at least 25 ms apart. A click reads back the newest frame captured before it. Capturing on demand showed the wrong state in every trial (M0: 0 of 30 correct). GDI `BitBlt` remains a last-resort fallback that cannot show the before state, so it needs a visible warning.
+- **Threads:** separate threads for hooks, frame readback, analysis (UI Automation and password scan), and image encoding. A password scan took about 270 ms on a large web page, so analysis must never delay the readback of the next click.
+- **Element identity:** UI Automation `ElementFromPoint` gives the control name, control type, automation ID, and `IsPassword`. Lookups usually take about 2 ms but can be much slower, so they never run on the hook or capture threads. Query the window when it comes to the foreground, so browsers build their accessibility data before the first click.
 - **Normalizer:** groups keystrokes into text runs, maps shortcuts to named actions, and drops suppressed input (password fields, paused state).
 - **Step builder:** joins one screenshot, one click or text group, and one UIA target into a step block.
-- **Redactor:** password-field regions are blurred in the frame before it is written. Other detections (pattern matching on typed text and on-screen text from UI Automation, with the local Windows OCR engine as a fallback) produce redaction boxes attached to the step.
+- **Redactor:** password-field regions are blacked out in the frame before it is written. Other detections (pattern matching on typed text and on-screen text from UI Automation, with the local Windows OCR engine as a fallback) produce redaction boxes attached to the step.
 
 **Known Windows limits to document:**
-- UIPI: a non-elevated recorder cannot see input sent to elevated windows. Options are to run elevated (not recommended), or to show a warning when an elevated window is active.
+- UIPI: a non-elevated recorder is expected not to see input sent to elevated windows (not yet tested). Options are `uiAccess` as Steps Recorder uses (needs a signed binary in a protected folder), running elevated (not recommended), or a warning when an elevated window is active. See Q17.
 - The UAC prompt and the Ctrl+Alt+Del secure desktop cannot be captured by design.
 - Some protected content (DRM video, some games) may render black in screenshots.
 

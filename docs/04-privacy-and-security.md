@@ -16,9 +16,9 @@ Privacy is a core product promise, not a feature. These guarantees are checked i
 | Concern | Design |
 | --- | --- |
 | **Keystrokes** | Keystroke capture is **off by default** and turned on per recording by an explicit toggle. While it is on, the indicator says so ("Keystrokes recording"). See Q4. |
-| **Password fields** | UI Automation `IsPassword` is checked before any text is recorded. Password field text is never stored, and the step reads "Enter password in *field name*" with no value. Fields that do not report `IsPassword` (some custom controls) are a known gap; we document it. |
+| **Password fields** | Password field text is never stored, and the step reads "Enter password in *field name*" with no value. No single signal is trusted: in M0, Edge's first lookup at a password field wrongly said it was not one. A field counts as a password if the element reports `IsPassword`, the point is inside a field found by the window scan, or the focused element reports it at keystroke time. If the check fails or cannot finish, typed text is dropped. Fields that report none of these (some custom controls) are a known gap; we document it. |
 | **Secrets typed elsewhere** | Typed text is shown in the document. Users can delete or redact steps before export. Recording with a visible warning reduces accidents. |
-| **Screenshots of sensitive content** | Manual blur or black-out tools (B7) and automatic redaction (B12–B14, section 3). |
+| **Screenshots of sensitive content** | Manual blur or black-out tools (B7) and automatic redaction (B12–B14, section 3). Turning keystroke capture off does not hide typed text that is visible on screen, so the UI must not imply that it does. |
 | **Clipboard** | Not captured in v1 (non-goal). |
 | **Pause and panic stop** | A global pause hotkey and a panic-stop hotkey work even when the app window is hidden. |
 | **Recording indicator** | Always visible in the tray and on the capture target. Can be hidden only in a clearly labeled setting. |
@@ -34,7 +34,7 @@ Encryption at rest is **dropped** (not planned). Instead, the app limits how muc
 - A user-editable list of custom words and regexes (for example, internal hostnames or customer names).
 
 **What happens**
-- **Password fields:** the region is blurred at capture time and the original pixels are discarded. The original is never written to disk.
+- **Password fields:** every password field in the clicked window is blacked out at capture, on every step, and the original pixels are discarded. The original is never written to disk. Solid black is used because blur can leave the length readable. Known limits: a field revealed with a "show password" button may stop reporting as a password, and a field that disappears right after the click may be missed by the scan (not yet tested). Password fields in other visible windows are not yet covered.
 - **Other detections:** suggested redaction boxes are shown on the screenshot and in the text, applied by default, and reviewed in the pre-export checklist (E5). The user can accept, remove, or add boxes.
 - **Strict mode (setting):** burn in all redactions at capture time, so unredacted pixels and text never reach disk.
 - Redacted text in typed steps is replaced by a placeholder, for example `[email]`, `[card number]`. The raw value is not stored in strict mode.

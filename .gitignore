@@ -7,6 +7,7 @@
 *.bsrec/
 /recordings/
 # Editor / OS
+.claude/
 .vscode/
 .idea/
 Thumbs.db
