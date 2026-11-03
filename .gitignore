@@ -1,0 +1,16 @@
+# Build outputs
+/target/
+/node_modules/
+/dist/
+/app/src-tauri/target/
+# Local recordings and test captures (may contain sensitive screenshots)
+*.bsrec/
+/recordings/
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+# Env
+.env
+.env.*
