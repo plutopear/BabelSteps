@@ -4,5 +4,6 @@
 pub mod markdown;
 pub mod markdown_import;
 pub mod model;
+pub mod storage;
 
 pub use model::*;
