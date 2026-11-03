@@ -1,7 +1,7 @@
 ---
 name: privacy-auditor
 description: Read-only audit of a BabelSteps change against the product's privacy promises (no network, redaction before writing, typed text failing closed, clean exports). Use proactively before committing any change that touches input capture, screenshots, redaction, storage, logging, export, dependencies, or Tauri permissions. Returns a pass or fail verdict; never edits.
-model: sonnet
+model: opus
 tools: Read, Glob, Grep, Bash
 ---
 
