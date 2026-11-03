@@ -67,4 +67,8 @@ Source: research by a delegated agent from Microsoft and vendor pages. Microsoft
 
 **Tauri 2 integration:** local certificates use `bundle.windows.certificateThumbprint`, `digestAlgorithm`, and `timestampUrl`. Custom tools (such as the Artifact Signing CLI) use `signCommand` with `%1` as the file path. The Tauri page's OV guide only covers pre-June-2023 certificates.
 
-**Recommendation:** US or Canada resident: Artifact Signing Basic. Anywhere else: apply to SignPath Foundation first, then SSL.com IV as the fallback. Decision deferred to M3, and it depends on the owner's country (open question Q16).
+**Recommendation:** US or Canada resident: Artifact Signing Basic. Anywhere else: apply to SignPath Foundation first, then SSL.com IV as the fallback.
+
+**Decision (2026-11-02):** The owner is in the US and does not want to pay. Apply to SignPath Foundation (free) and fall back to unsigned with mitigations. Artifact Signing stays as an option if the owner reconsiders.
+
+**Not yet researched:** whether publishing through the Microsoft Store (which re-signs submitted packages) is a cheaper or free route, and whether a Store package can use low-level input hooks. Worth a short check before M3.

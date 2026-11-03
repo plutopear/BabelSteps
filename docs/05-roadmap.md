@@ -41,7 +41,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 ## M3 — Windows release
 
-- Installer, code signing, and the trust-signal pages (Privacy doc §5). Signing options are researched in `research/baseline-and-competitors.md` §4; the choice depends on the owner's country (Q16).
+- Installer, code signing, and the trust-signal pages (Privacy doc §5). Decision: no paid certificate. Apply to SignPath Foundation (free; needs an OSI license, a public repo, MFA, and a published signing policy, and the Foundation becomes the publisher). Options and caveats are in `research/baseline-and-competitors.md` §4.
+- If SignPath does not accept the project, ship unsigned with mitigations: published SHA-256 hashes, reproducible builds where possible, a clear "why Windows warns you" page, submission of every release to Microsoft Defender's false-positive portal and major antivirus vendors, and distribution through winget.
 - Accessibility pass on the app (C6) and themes (C5).
 - Antivirus false-positive submissions.
 - Documentation and user guide.

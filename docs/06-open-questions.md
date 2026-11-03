@@ -64,8 +64,6 @@ This changes default templates, default titles, and whether comments or redactio
 
 **Q15. Browser extension.** Keep out of v1 (recommended), or include a local-only extension for better web element names?
 
-**Q16. Country of residence (for code signing).** Microsoft's low-cost Artifact Signing is available to individuals in the US and Canada only. Where are you based? Not needed until M3.
-
 ## Answered
 
 Decisions from 2026-11-02:
@@ -84,5 +82,7 @@ Decisions from 2026-11-02:
 - **Q11 Git:** Yes, local repository.
 - **Q14 Hotkeys:** Use the three-modifier defaults, and make every hotkey remappable.
 - **Code signing:** Research requested; results to be summarized in the roadmap before M3.
+
+- **Q16 Code signing:** Owner is in the United States and does **not** want to pay for a certificate. Plan: apply to SignPath Foundation (free for open source) before the first public release, and make unsigned distribution workable as the fallback (see roadmap M3). Paid options such as Microsoft Artifact Signing (about $120/yr, available to US individuals) stay on the shelf in case the owner changes their mind.
 
 Nothing is blocking M0 now.
