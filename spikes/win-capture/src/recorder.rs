@@ -422,7 +422,7 @@ fn process_click(
         probe_gdi,
         target_name: target.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
         target_type: target.as_ref().map(|t| t.control_type.clone()).unwrap_or_default(),
-        window_title: target.as_ref().map(|t| t.window_title.clone()).unwrap_or_default(),
+        window_title: target.as_ref().and_then(|t| t.window_title.clone()).unwrap_or_default(),
         process_name: target.as_ref().map(|t| t.process_name.clone()).unwrap_or_default(),
         is_password: target.as_ref().map(|t| t.is_password).unwrap_or(false),
         redacted_rects: screen_rects,
@@ -436,6 +436,7 @@ fn process_click(
         screenshot: Some(rel),
         target,
         redactions,
+        screenshot_withheld: false,
         captured_unix_ms: clock::unix_ms(),
     }));
     Ok(trace)

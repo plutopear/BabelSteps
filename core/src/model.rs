@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Recording {
@@ -31,12 +31,43 @@ impl Recording {
     }
 }
 
+/// Rich text decision: `Text.text`, `StepBlock.description`, list items, callout
+/// text and image captions hold a restricted inline Markdown string: bold `**`,
+/// italic `*`, underline `<u>..</u>`, inline code, and line breaks (a newline character).
+/// Step titles and heading text are plain strings with no formatting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Block {
+    /// Heading text is plain (no inline formatting).
     Heading { id: String, level: u8, text: String },
+    /// `text` is restricted inline Markdown (see the note on [`Block`]).
     Text { id: String, text: String },
     Step(StepBlock),
+    /// Each item is restricted inline Markdown on a single line.
+    List { id: String, ordered: bool, items: Vec<String> },
+    /// `image` is a path relative to the recording folder, forward slashes.
+    /// `caption` is restricted inline Markdown.
+    Image { id: String, image: String, caption: String },
+    /// A highlighted note; `text` is restricted inline Markdown.
+    Callout { id: String, kind: CalloutKind, text: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalloutKind {
+    Note,
+    Tip,
+    Warning,
+}
+
+impl CalloutKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            CalloutKind::Note => "Note",
+            CalloutKind::Tip => "Tip",
+            CalloutKind::Warning => "Warning",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,6 +82,9 @@ pub struct StepBlock {
     /// Regions (in screenshot pixels) to be blurred or blacked out on export.
     pub redactions: Vec<Rect>,
     pub captured_unix_ms: u64,
+    /// True when the password check failed and the screenshot was withheld.
+    #[serde(default)]
+    pub screenshot_withheld: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,7 +120,9 @@ impl MouseButton {
 pub struct Target {
     pub name: String,
     pub control_type: String,
-    pub window_title: String,
+    /// Only filled when the user opts in. Never used in step titles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_title: Option<String>,
     pub process_name: String,
     pub is_password: bool,
     pub bounds: Option<Rect>,
@@ -107,11 +143,9 @@ pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Targe
     match target {
         Some(t) if !t.name.trim().is_empty() => {
             let ctl = t.control_type.trim().to_lowercase();
-            let app = if !t.window_title.trim().is_empty() {
-                t.window_title.trim().to_string()
-            } else {
-                t.process_name.trim().to_string()
-            };
+            // Privacy: app name only, never the window title (it can hold
+            // document names or other private text).
+            let app = app_name(&t.process_name);
             let mut s = format!("{verb} \"{}\"", t.name.trim());
             if !ctl.is_empty() {
                 s.push(' ');
@@ -127,5 +161,16 @@ pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Targe
             format!("{verb} {} at ({x}, {y})", t.control_type.trim().to_lowercase())
         }
         _ => format!("{verb} at ({x}, {y})"),
+    }
+}
+
+/// Process name without a trailing `.exe` (case-insensitive).
+fn app_name(process_name: &str) -> String {
+    let p = process_name.trim();
+    let n = p.len();
+    if n >= 4 && p.is_char_boundary(n - 4) && p[n - 4..].eq_ignore_ascii_case(".exe") {
+        p[..n - 4].trim_end().to_string()
+    } else {
+        p.to_string()
     }
 }

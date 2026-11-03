@@ -2,6 +2,7 @@
 //! No platform code and no networking belong in this crate.
 
 pub mod markdown;
+pub mod markdown_import;
 pub mod model;
 
 pub use model::*;

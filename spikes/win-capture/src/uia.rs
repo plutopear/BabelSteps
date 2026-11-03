@@ -44,7 +44,7 @@ impl Uia {
                 h: r.bottom - r.top,
             });
             let process_name = el.CurrentProcessId().ok().map(|p| process_name(p as u32)).unwrap_or_default();
-            Ok(Target { name, control_type, window_title: window_title_at(x, y), process_name, is_password, bounds })
+            Ok(Target { name, control_type, window_title: Some(window_title_at(x, y)), process_name, is_password, bounds })
         }
     }
 }
