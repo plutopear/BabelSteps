@@ -1,0 +1,30 @@
+[package]
+name = "babelsteps-app"
+description = "BabelSteps desktop app (Tauri shell)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+babelsteps-core = { path = "../../core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Dev-only PDF checks. Never part of a release build.
+lopdf = { version = "0.38", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+# Windows printing. Versions must match the ones wry/tauri already use
+# (checked with `cargo tree -i webview2-com` and `cargo tree -i windows`).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation"] }
+windows-core = "0.62"
+
+[features]
+# `--pdf-selftest <dir>` entry point and the PDF inspection code.
+selftest = ["dep:lopdf", "dep:image"]
