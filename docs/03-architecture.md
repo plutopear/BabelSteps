@@ -77,7 +77,7 @@ A single-file export (`.bsrec` as a zip) can be added later.
 ## 5. Exporters
 
 - **Markdown:** our own serializer from the block model. Output is `document.md` plus `images/`. Optional single-folder zip.
-- **PDF:** render the document to HTML with a print stylesheet, then print to PDF through the platform webview (WebView2 `PrintToPdf` on Windows, `WKWebView` on macOS). This keeps dependencies low and styling in CSS. Alternative to evaluate later: Typst or a pure-Rust PDF writer if the webview route is limiting.
+- **PDF:** render the document to HTML with a print stylesheet, then print to PDF through the platform webview (WebView2 `PrintToPdf` on Windows, `WKWebView` on macOS). This keeps dependencies low and styling in CSS. Pages are US Letter, with an optional header and footer holding only the title and page number (Q7), so a local file path can never appear in the output. Alternative to evaluate later: Typst or a pure-Rust PDF writer if the webview route is limiting.
 - **HTML:** the same HTML pipeline, output as a self-contained file.
 
 ## 6. Cross-platform seams

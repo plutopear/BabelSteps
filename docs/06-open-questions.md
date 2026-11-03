@@ -4,8 +4,6 @@ Other docs refer to these by number. Do not re-ask anything under **Decided**.
 
 ## Open
 
-**Open: Q7. PDF layout (decide before M2).** Letter, A4, or both? A header and footer with title and date? Proposed: both page sizes, chosen at export and defaulting to Letter, with title and page number in the footer.
-
 **Open: Q17. Admin windows and code signing (decide after the M1 test).** Steps Recorder uses a Windows permission called `uiAccess`, which is designed to let accessibility tools work with admin windows without running as admin. It needs a signed app installed in a protected folder such as Program Files. Without it, BabelSteps is expected to miss clicks in admin tools unless it is itself run as admin. This raises the value of a signature for IT users.
 
 ## Decided (2026-11-02)
@@ -18,6 +16,7 @@ Other docs refer to these by number. Do not re-ask anything under **Decided**.
 | Q4 | Keystroke capture | Off by default, enabled per recording with a visible indicator. Password fields are never recorded. |
 | Q5 | Audience | IT/helpdesk first, end-user training second. See requirements section E. |
 | Q6 | Editing | WYSIWYG block editor: edit titles and descriptions, reorder, delete, add notes, redact. Documents round-trip with Markdown. |
+| Q7 | PDF layout | US Letter only; A4 is not offered. A header and footer (title and page number) are an option in the export dialog, off by default. |
 | Q7a | Markdown export | `document.md` plus an `images/` folder. |
 | Q8 | Licensing and name | Open-source core under a permissive license, final choice at first public release. The name stays BabelSteps. |
 | Q9 | Platform order | Windows, then macOS. Linux is in the backlog; platform interfaces stay clean so a port remains possible. |

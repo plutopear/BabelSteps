@@ -30,7 +30,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B5 | Auto-generated document after stop: numbered steps, a screenshot per step, and caption text. | P1 |
 | B6 | WYSIWYG editable document: edit titles and descriptions, reorder, delete, merge, and insert text, headings, lists, and images. Basic formatting (bold, italic, underline, lists, headings, code). Content round-trips with Markdown (import and export) without losing structure. | P1 |
 | B7 | Blur or black-out regions on any screenshot before export. | P1 |
-| B8 | Export to **PDF**. | P0 |
+| B8 | Export to **PDF** on US Letter pages. A header and footer (title and page number) are an export option, off by default (Q7). | P0 |
 | B9 | Export to **Markdown** (text file plus an `images/` folder). | P0 |
 | B10 | Export to single-file HTML. | P2 |
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |

@@ -37,6 +37,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Goal:** the Scribe-style value.
 
+**Status (2026-11-02):** started at the owner's request, before M1 is finished. M2 needs two M1 items, which are pulled forward: the Tauri 2 shell (for the editor and PDF printing) and recording storage (C4). Keystroke capture on a real machine (B1–B4) still waits on M1's capture pipeline, so only its platform-free logic is built first. The rest of M1 remains open.
+
 - Keystroke capture with text grouping, shortcut naming, and password suppression (B1–B4).
 - Document generation after stop (B5).
 - Block editor with formatting (B6).
