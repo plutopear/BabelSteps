@@ -6,8 +6,10 @@
 # Local recordings and test captures (may contain sensitive screenshots)
 *.bsrec/
 /recordings/
+# Claude Code: keep .claude/skills in git, but not worktrees or personal settings
+.claude/worktrees/
+.claude/settings.local.json
 # Editor / OS
-.claude/
 .vscode/
 .idea/
 Thumbs.db
