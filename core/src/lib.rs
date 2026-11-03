@@ -7,6 +7,9 @@ pub mod image_export;
 pub mod markdown;
 pub mod markdown_import;
 pub mod model;
+pub mod normalize;
+pub mod password;
+pub mod pii;
 pub mod storage;
 pub mod testing;
 
