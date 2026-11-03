@@ -4,5 +4,8 @@
 pub mod markdown;
 pub mod markdown_import;
 pub mod model;
+pub mod normalize;
+pub mod password;
+pub mod pii;
 
 pub use model::*;
