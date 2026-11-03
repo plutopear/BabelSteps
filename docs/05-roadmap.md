@@ -27,7 +27,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 - Basic library and a simple viewer.
 - Retention settings (A8).
 - First task: a Tauri 2 shell, to prove the UI half of the stack and measure D1, D3, and D7.
-- Carried over from M0: multiple monitors and mixed DPI, elevated windows and UAC, Chrome and Firefox, the capture border, Steps Recorder's comment, pause, and settings UI, and sleep, lock, and resolution changes.
+- Carried over from M0: multiple monitors and mixed DPI, elevated windows and UAC, Chrome and Firefox, Steps Recorder's comment, pause, and settings UI, and sleep, lock, and resolution changes.
 - Image size decision: crop to the active window, choice of format, and downscaling for export.
 
 **Exit:** a parity checklist, derived from the baseline work, passes item by item. Performance targets D1–D3 met.

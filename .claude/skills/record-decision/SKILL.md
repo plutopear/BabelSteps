@@ -11,7 +11,7 @@ Decisions that live only in a conversation are lost when it ends, so write them 
 
 | What changed | Update |
 | --- | --- |
-| Owner's decision or answer | `docs/06-open-questions.md`: remove the question if it is listed, and add one line under **Answered** with the date |
+| Owner's decision or answer | `docs/06-open-questions.md`: remove the question from **Open**, and add one row under **Decided**, with the date if it differs from the heading |
 | What the product must do, or a target | `docs/02-requirements.md`: the row with that ID, or a new row with the next free ID |
 | How it is built | `docs/03-architecture.md` |
 | A privacy promise or redaction rule | `docs/04-privacy-and-security.md` |

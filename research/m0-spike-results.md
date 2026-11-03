@@ -88,7 +88,6 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 | --- | --- | --- |
 | Multiple monitors and mixed DPI scaling (A7) | Only one monitor, at 100% | A second display or a change to scaling |
 | Elevated windows, UAC prompts | Needs an elevated target and an admin prompt | M1 test, with the owner approving the prompt |
-| Whether the yellow capture border is really gone | The API accepted the setting and a GDI check found no yellow, but the border may not appear in GDI captures | A person watching the screen during a run |
 | Real people using real apps | Synthetic clicks only, apart from a 2-second run that produced 2 steps from real clicks, whose output was deleted unread | `record` mode, tried by the owner |
 | Tauri and WebView2 | Not part of these spikes | First M1 task. D1 (idle memory) depends on it |
 | D3, D4, D5 (startup, installer size, PDF export) | Nothing to measure yet | M1 to M3 |
@@ -98,6 +97,7 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 
 ## Other notes
 
+- **Capture border:** the owner saw no yellow border around the screen during the test runs (reported 2026-11-02). The API accepted `IsBorderRequired(false)` from this unpackaged app. This is a person's observation on one Windows 11 build with one monitor. Other Windows versions are not tested, so re-check once the minimum supported version is chosen.
 - **Calculator read 0 points in one earlier run**, and 192 in the final one. The cause was not found, so window selection for modern apps should be re-checked in M1.
 - `SystemRelativeTime` averaged 0.3 to 0.9 ms *ahead* of frame arrival, so it is not a pure capture timestamp. That errs on the safe side here: a borderline frame is treated as too new.
 - Raising hook and worker thread priority came with better load results (27 of 30 before, 30 of 30 after), but the earlier run was also contaminated by real clicks. The effect is not separately proven.

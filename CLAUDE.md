@@ -50,11 +50,29 @@ This PC is also the owner's daily machine, and they may be using it during a tes
 
 M0's first test passed 12 of 12 checks while hiding real bugs. When everything passes, ask what the test could not have caught. Check results in the real output file, not in memory. Make sure a check can fail. Give timings with their conditions, and label guesses as guesses.
 
-## Saving context
+## When to use what
 
-- Use the project skills instead of raw commands: `babelsteps-status`, `babelsteps-check`, `capture-selftest`, `psr-baseline`, `windows-api-lookup`, `record-decision`.
-- Never read `windows` crate source files whole. They are huge. See `windows-api-lookup`.
-- Delegate work that produces a lot of noise, and keep only the conclusion: `test-runner` for long builds, `diagnostics-triage` for logs, `doc-researcher` for web research, `repo-scout` for finding code, `code-reviewer` after a change. Handle small tasks directly, because each subagent starts cold.
+Use these without being asked. They keep long output out of the conversation and apply the rules above.
+
+| When | Use |
+| --- | --- |
+| Starting a session, after a context reset, or asked what's next | `babelsteps-status` skill |
+| After any Rust change, and before every commit | `babelsteps-check` skill |
+| After changing hooks, capture, UI Automation, redaction, or the step pipeline | `capture-selftest` skill (warn the owner first) |
+| A self-test failed, its numbers need explaining, or two runs need comparing | `capture-results-analyst` agent |
+| Before committing changes to capture, redaction, storage, logging, export, dependencies, or Tauri permissions | `privacy-auditor` agent. Fix any FAIL before committing |
+| Calling a Windows API, or a `windows` crate compile error | `windows-api-lookup` skill. Never read that crate's source files whole |
+| A question about how Steps Recorder behaves | `psr-baseline` skill (check the research doc first) |
+| The owner decides something, or a test changes what we believed | `record-decision` skill, in the same turn |
+| Scoped UI work under `app/` | `tauri-ui-implementer` agent |
+| After changing exporters, the document model, or image handling | `export-verifier` agent |
+| A scoped, clearly specified change outside capture and redaction | `standard-implementer` agent, or `cheap-implementer` for mechanical edits |
+| Long or noisy output | `test-runner` for builds, `diagnostics-triage` for logs |
+| Web or documentation research | `doc-researcher` agent |
+| Finding code across many files | `repo-scout` or `Explore` agent |
+| After a large change, to catch general bugs | `code-reviewer` agent; `security-reviewer` for anything beyond the privacy checks |
+
+Do capture, hook, and redaction design yourself, because they depend on the evidence above. Do small tasks directly too: each subagent starts cold and has to re-read what you already know. Agents report back to you, so relay what matters to the owner.
 
 ## Environment
 
