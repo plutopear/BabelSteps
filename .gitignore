@@ -5,7 +5,7 @@
 /app/src-tauri/target/
 # Local recordings and test captures (may contain sensitive screenshots)
 *.bsrec/
-/recordings/
+recordings/
 # Claude Code: keep .claude/skills in git, but not worktrees or personal settings
 .claude/worktrees/
 .claude/settings.local.json

@@ -31,4 +31,4 @@ Return exactly:
 2. **Findings:** `file:line`, one sentence on the leak or broken promise, and severity (blocker, should-fix, or note). Include how the data escapes.
 3. **Unverified:** what you could not confirm, and what test would settle it.
 
-Keep the response under 300 words. If there is nothing to report, say so in one line per checked area.
+Keep the response under 400 words. If there is nothing to report, say so in one line per checked area.

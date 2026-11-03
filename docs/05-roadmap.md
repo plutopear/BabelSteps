@@ -29,6 +29,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 - First task: a Tauri 2 shell, to prove the UI half of the stack and measure D1, D3, and D7.
 - Carried over from M0: multiple monitors and mixed DPI, elevated windows and UAC, Chrome and Firefox, Steps Recorder's comment, pause, and settings UI, and sleep, lock, and resolution changes.
 - Image size decision: crop to the active window, choice of format, and downscaling for export.
+- Privacy fixes from the M0 audit, none of which may carry over from the spike: withhold the screenshot when the password check fails or times out, scan all visible windows, use all three password signals, and name the app rather than the window title (`describe_click` in `core`).
 
 **Exit:** a parity checklist, derived from the baseline work, passes item by item. Performance targets D1–D3 met.
 

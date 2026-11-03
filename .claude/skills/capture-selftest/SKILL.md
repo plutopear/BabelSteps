@@ -31,4 +31,4 @@ Any synthetic input must stay safe while a person uses the PC. These protections
 - Keep `only_injected: true`, so the owner's real input is ignored.
 - Delete full-screen images after checking them. View only `test-window-crop.png`.
 
-Use the `record` mode only with the owner's agreement, because it records their real clicks and screen.
+Use the `record` mode only with the owner's agreement. It records their real clicks and full screen, and it has no PII redaction and fails open on password detection, so it is not safe for sensitive work.

@@ -29,7 +29,7 @@ Each of these exists because the simpler approach failed in testing. The evidenc
 - **Screenshots show the state before the click.** Capture runs continuously, with a spaced frame history. Capturing when the click arrives is wrong every time.
 - **Hook callbacks only timestamp and queue.** All input on the machine waits on them.
 - **Analysis never delays capture.** UI Automation and password scans get their own thread; a scan took about 270 ms on a large page.
-- **Password detection uses three signals and fails closed:** the element, the window scan, and the focused element. Edge's first lookup is wrong. If the check fails, drop the typed text.
+- **Password detection uses three signals and fails closed:** the element, the window scan, and the focused element. Edge's first lookup is wrong. If the check fails or times out, drop the typed text and withhold the screenshot. The spike does not do this yet, so do not copy its redaction code.
 - **Redact before writing to disk.** Password pixels never reach the disk.
 
 ## Product rules

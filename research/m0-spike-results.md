@@ -103,6 +103,20 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 - Raising hook and worker thread priority came with better load results (27 of 30 before, 30 of 30 after), but the earlier run was also contaminated by real clicks. The effect is not separately proven.
 - Keystrokes are only counted in this spike. Turning them into text, handling dead keys and keyboard layouts, is M2 work and remains unproven.
 
+## Privacy audit of the spike (2026-11-02)
+
+An audit by a Claude agent following `.claude/agents/privacy-auditor.md` returned FAIL. The spike must not be used as a privacy reference, and `record` mode is **not safe for sensitive work**.
+
+| Finding | Effect | Where it is handled |
+| --- | --- | --- |
+| Redaction fails open: if UI Automation fails, the full frame is still written, with no warning | Passwords can reach disk | B12, M1 |
+| The scan covers only the clicked window, with no time limit and no focus signal | Other windows are captured unredacted | B12, M1 |
+| No PII redaction exists yet | Everything else on screen is saved as is | B13, M2 |
+| Window titles and element names go into step titles and `recording.json` | Breaks Privacy doc §1 | A3, M1 |
+| `.gitignore` covered only `recordings/` at the repo root | Real screenshots could have been committed from a subfolder | Fixed, and checked with `git check-ignore` |
+
+Clean: no networking crates in `cargo tree` (checked by the agent), no text chunks in written PNGs, and redaction happens before the encoder queue when detection succeeds.
+
 ## Testing on a live desktop
 
 Early test versions moved the real cursor and recorded the owner's real clicks. The test now sends each click as one uninterruptible `SendInput` call that restores the cursor, checks that its own window is under the point, stops typing if focus moves, ignores non-synthetic input, and deletes full-screen images after checking them. The Steps Recorder run still held keyboard focus for about 20 seconds. Keep this in mind for any future test that needs focus: warn first, or use a separate Windows session.

@@ -9,7 +9,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | --- | --- | --- |
 | A1 | Start and stop a recording from the UI and from a global hotkey. | P0 |
 | A2 | Capture a screenshot on each mouse click. Outline the clicked element, as Steps Recorder does with a green rectangle, and mark the click point. | P0 |
-| A3 | Generate a text description per click from the target element's name and type (e.g., "Left-click *Save* button in Notepad"). Fall back to coordinates when no name is available. | P0 |
+| A3 | Generate a text description per click from the target element's name and type (e.g., "Left-click *Save* button in Notepad"). Name the app, not the full window title, because titles often hold file names, page titles, and customer names (Privacy doc §1). Showing the full title is an opt-in setting. Fall back to coordinates when no name is available. | P0 |
 | A4 | Add user comments at any point, by hotkey or from the UI. | P0 |
 | A5 | Pause and resume without ending the recording. | P0 |
 | A6 | Record the full screen or a chosen window/monitor. | P0 |
@@ -34,7 +34,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B9 | Export to **Markdown** (text file plus an `images/` folder). | P0 |
 | B10 | Export to single-file HTML. | P2 |
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |
-| B12 | Automatic redaction of passwords: every password field in the window is blacked out at capture on every step, and the original pixels are never stored. | P0 |
+| B12 | Automatic redaction of passwords: every password field in any visible window on the captured screen is blacked out at capture on every step, and the original pixels are never stored. If the check fails or times out, the screenshot is withheld. | P0 |
 | B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). | P1 |
 | B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. | P1 |
 
