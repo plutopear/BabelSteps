@@ -123,6 +123,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "babelsteps-windows"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "babelsteps-core",
+ "crossbeam-channel",
+ "png",
+ "windows",
+]
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

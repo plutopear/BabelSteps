@@ -5,13 +5,15 @@ description: Run the BabelSteps Windows capture self-test (hooks, before-the-cli
 
 # Capture self-test
 
-This runs on the owner's daily PC while they may be using it. Tell them first, in one line: it takes about a minute, loads all CPU cores for about 10 seconds, shows a small green test window, and takes keyboard focus for about a second. It then ignores their real input.
+This runs on the owner's daily PC while they may be using it. Tell them first, in one line: it takes about a minute, shows a small green test window on top, and takes keyboard focus for a few seconds while it types into that window. It ignores their real input.
+
+It tests the real recorder in `platform/windows` (`src/bin/capture_selftest.rs`): before-the-click screenshots (also with analysis slowed down), password text and pixels on disk, fail-closed on UI Automation failure, timeout and scan failure, the fallback-capture note, pause, comments, orphan images and hook speed. `-Spike` runs the old M0 spike test instead. If typing stops with "lost focus", the safety guard worked; rerun once.
 
 ```powershell
 powershell -NoProfile -File .claude/skills/capture-selftest/scripts/selftest.ps1
 ```
 
-Options: `-BuildOnly` compiles without running. `-LogFile <path>` re-summarizes an earlier log without running anything.
+Options: `-BuildOnly` compiles without running. Always the release build: the debug build encodes images too slowly and runs out of frame budget. `-LogFile <path>` re-summarizes an earlier log without running anything.
 
 It prints every failed check, a pass count, and the key numbers. The full log and `selftest-report.json` paths are printed too; search them with Grep or a small script rather than reading them, because the report holds a trace for every click.
 
@@ -29,6 +31,6 @@ Any synthetic input must stay safe while a person uses the PC. These protections
 - Send each click as one `SendInput` call that also returns the cursor (`testwin::click_with`).
 - Check that our window is under the point first (`safe_click`), and that it has focus before typing (`safe_type`).
 - Keep `only_injected: true`, so the owner's real input is ignored.
-- Delete full-screen images after checking them. View only `test-window-crop.png`.
+- Delete full-screen images after checking them. View only `test-window-crop.png`, which is cropped to the client area so nothing behind the window shows.
 
 Use the `record` mode only with the owner's agreement. It records their real clicks and full screen, and it has no PII redaction and fails open on password detection, so it is not safe for sensitive work.

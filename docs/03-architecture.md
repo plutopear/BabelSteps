@@ -43,6 +43,16 @@
 - **Step builder:** joins one screenshot, one click or text group, and one UIA target into a step block.
 - **Redactor:** password-field regions are blacked out in the frame before it is written. Other detections (pattern matching on typed text and on-screen text from UI Automation, with the local Windows OCR engine as a fallback) produce redaction boxes attached to the step.
 
+**As built (M1, 2026-11-06, `platform/windows`):** four threads, `input-hooks → capture → analysis → writer`.
+- Capture never waits on anything slower. Frames waiting for analysis or the disk are held to a 200 MB budget; over it, the step is recorded without an image and says so, because a late grab would show the wrong moment.
+- UI Automation calls run on a worker with time limits (1.5 s lookups, 3 s scans). A worker that hangs is abandoned and replaced; its answer is unknown.
+- The capture thread records the visible windows on the frame's monitor right after each grab, skipping windows fully hidden behind an opaque window. Layered, click-through, DirectComposition and shaped windows never hide anything, and neither do the foreground and clicked windows or menus, because the frame predates the click. Menus, tooltips and shadows cannot hold password fields and are not scanned.
+- Analysis scans that list, plus windows that appeared since. A listed window that has since changed (minimized, hidden, moved, closed) uses its own scan from the same position within 60 s; with none, the screenshot is withheld. Every frame also blacks out every field remembered from the last 10 s, and every field of any window scanned on that monitor in the last 60 s (for windows closed by a shortcut or pages that navigated away). Every visible window is rescanned at start and every 5 s. Too much black is the accepted cost.
+- `window_scan` is `Yes` only if every element reported as a password lies inside a found field. A frame is redacted before it leaves analysis, and written only once its step is final; withheld and discarded frames are dropped in memory.
+- A frame not proven to predate its event (GDI fallback, history flushed) is kept but the step says "This screenshot may show the moment after the action."
+- The hook watchdog compares the system's last-input time with the last hook callback and reinstalls the hooks if Windows removed them.
+- Recording refuses to start unless the thread is per-monitor DPI aware.
+
 **Known Windows limits to document:**
 - UIPI: a non-elevated recorder is expected not to see input sent to elevated windows (not yet tested). Options are `uiAccess` as Steps Recorder uses (needs a signed binary in a protected folder), running elevated (not recommended), or a warning when an elevated window is active. See Q17.
 - The UAC prompt and the Ctrl+Alt+Del secure desktop cannot be captured by design.

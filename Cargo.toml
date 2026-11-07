@@ -1,6 +1,6 @@
 ﻿[workspace]
 resolver = "2"
-members = ["core", "spikes/win-capture", "app/src-tauri"]
+members = ["core", "platform/windows", "spikes/win-capture", "app/src-tauri"]
 
 [workspace.package]
 edition = "2021"
