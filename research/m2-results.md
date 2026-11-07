@@ -27,7 +27,7 @@ Checked in the real PDF: the redaction box is black in all 100 extracted images,
 
 - Lower-end hardware. The margin is under 1.1 s on a fast desktop, so a typical laptop may miss 10 s at ultrawide sizes (a guess).
 - Real screenshots. The synthetic images compress poorly, so the PDF size is probably overstated.
-- The live app window, Tauri commands and the dialog plugin. Only the hidden print path ran.
+- The dialog plugin's native pickers. (The live window and export commands were tested later; see the next section.)
 
 ## Editor UI in the real app (2026-11-06)
 
