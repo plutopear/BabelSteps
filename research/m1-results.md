@@ -34,4 +34,20 @@ Analysis per event: mean about 94 ms, max about 100 ms, scanning 7 windows. Fram
 - Sleep, lock, resolution changes and long sessions. The rebuild code exists but has not run.
 - A shortcut (Alt+F4) closing a password window during more than 10 s of typing, and a page replacing its password field in place. The design covers both (60 s window memory) but no test exercises them.
 - Lower-end hardware. Analysis at 94 ms per event is measured on a fast desktop only.
-- The app does not use the engine yet: no start, stop or hotkeys in the UI.
+- The app did not use the engine at the time of this run. It does now (next section), but that path has not run on the real desktop.
+
+## Recorder connected to the app (2026-11-06)
+
+Built, privacy-audited (PASS), not yet run in the real app:
+
+- Commands to start, pause, resume, add a note and stop. While recording, the open recording belongs to the recorder, and save, export and the like refuse with "busy".
+- Global hotkeys Ctrl+Alt+Shift+R (start or stop), P (pause), N (note), X (stop now), registered with `RegisterHotKey`. Their key presses are dropped before they can become steps. A conflict with another app is shown in the recording panel.
+- A tray icon: grey idle, red recording, amber paused. Its tooltip says whether keystrokes are recorded.
+- Closing the window or quitting while recording stops and saves first. If stopping fails, the document is reopened.
+- UI: record dialog with keystrokes off by default; recording panel; live status line; autosave 1.5 s after the last edit. A hotkey start with unsaved edits asks the editor to save, then start.
+
+Checked only in the browser preview with sample data, and by build and type checks.
+
+**Known limits:** a hotkey start can miss an edit made in the last moment before it (the editor reports unsaved edits about once a second). A failed save on close is silent. Whether Windows sign-out or shutdown runs the stop-and-save path is not known.
+
+**Still to test (needs the owner's agreement, because it records their real screen):** each hotkey, the tray menu, pause, a note, stop, closing and quitting while recording, and that no hotkey press appears as a step.

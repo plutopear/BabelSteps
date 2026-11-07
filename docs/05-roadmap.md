@@ -25,6 +25,13 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Status (2026-11-06, later):** the recording engine is built in `platform/windows` (branch `m1-capture`) and passes its self-test 36/36 on one monitor (`research/m1-results.md`). Next: wire it into the app (start, pause, stop, comments, hotkeys, tray indicator), then test real apps, multiple monitors, admin windows, sleep and lock, and build the parity checklist.
 
+**Status (2026-11-06, end of session):** the recorder is wired into the app: record dialog (keystrokes off by default), recording panel, Ctrl+Alt+Shift+R/P/N/X hotkeys (excluded from recordings), tray indicator, and stop-and-save on close and quit. Privacy audit passed. **Not yet run in the real app.** Next, in order:
+1. A short live test on the owner's desktop, with their agreement each time (it records their real screen): hotkeys, tray, pause, note, stop, quit while recording.
+2. Real apps: password fields in Edge, Chrome and Firefox; an elevated window (Q17).
+3. Sleep, lock, resolution change; multiple monitors if the owner has a second one.
+4. The Steps Recorder parity checklist, item by item (the M1 exit).
+Not built yet: the visual cue on the capture target (C2), retention settings (A8), the single-file output decision (A9, Q2), remappable hotkeys (C3).
+
 - Start, pause, stop, comments, and hotkeys (A1–A6, C2–C3).
 - Multi-monitor and DPI correctness (A7).
 - Recording storage in the folder bundle format (C4).

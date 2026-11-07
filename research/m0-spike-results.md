@@ -89,7 +89,7 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 | Multiple monitors and mixed DPI scaling (A7) | Only one monitor, at 100% | A second display or a change to scaling |
 | Elevated windows, UAC prompts | Needs an elevated target and an admin prompt | M1 test, with the owner approving the prompt |
 | Real people using real apps | Synthetic clicks only, apart from a 2-second run that produced 2 steps from real clicks, whose output was deleted unread | `record` mode, tried by the owner |
-| Tauri and WebView2 | Not part of these spikes | First M1 task. D1 (idle memory) depends on it |
+| Tauri and WebView2 | Not part of these spikes | Shell built and PDF printing measured (`m2-results.md`); the recorder runs inside it (`m1-results.md`). D1 (idle memory) still unmeasured |
 | D3, D4 (startup, installer size) | Nothing to measure yet | M1 to M3. D5 was met on one fast PC on 2026-11-06: see `m2-results.md` |
 | Lower-end hardware | One fast desktop only | A laptop test before M3 |
 | Long sessions, screen resolution changes, sleep and lock | Out of scope for spikes | M1 |
@@ -101,7 +101,7 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 - **Calculator read 0 points in one earlier run**, and 192 in the final one. The cause was not found, so window selection for modern apps should be re-checked in M1.
 - `SystemRelativeTime` averaged 0.3 to 0.9 ms *ahead* of frame arrival, so it is not a pure capture timestamp. That errs on the safe side here: a borderline frame is treated as too new.
 - Raising hook and worker thread priority came with better load results (27 of 30 before, 30 of 30 after), but the earlier run was also contaminated by real clicks. The effect is not separately proven.
-- Keystrokes are only counted in this spike. Turning them into text, handling dead keys and keyboard layouts, is M2 work and remains unproven.
+- Keystrokes are only counted in this spike. The real recorder turns them into text (`platform/windows/src/keys.rs`, 2026-11-06), with AltGr and Right Alt handled; a dead key followed by a letter is still recorded as the plain letter.
 
 ## Privacy audit of the spike (2026-11-02)
 
@@ -114,6 +114,8 @@ An audit by a Claude agent following `.claude/agents/privacy-auditor.md` returne
 | No PII redaction exists yet | Everything else on screen is saved as is | B13, M2 |
 | Window titles and element names go into step titles and `recording.json` | Breaks Privacy doc §1 | A3, M1 |
 | `.gitignore` covered only `recordings/` at the repo root | Real screenshots could have been committed from a subfolder | Fixed, and checked with `git check-ignore` |
+
+**Status (2026-11-06):** the real recorder in `platform/windows` fixes the first, second and fourth findings: it fails closed, scans every window shown in the frame with time limits and three signals, and never collects window titles. Its own privacy audits passed and its self-test passes 36/36 (`m1-results.md`). PII in typed text and element names is scrubbed by `core`; PII on screenshots (OCR, B13) is not built. These findings describe the spike only, which stays unsafe.
 
 Clean: no networking crates in `cargo tree` (checked by the agent), no text chunks in written PNGs, and redaction happens before the encoder queue when detection succeeds.
 
