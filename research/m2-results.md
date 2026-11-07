@@ -28,3 +28,18 @@ Checked in the real PDF: the redaction box is black in all 100 extracted images,
 - Lower-end hardware. The margin is under 1.1 s on a fast desktop, so a typical laptop may miss 10 s at ultrawide sizes (a guess).
 - Real screenshots. The synthetic images compress poorly, so the PDF size is probably overstated.
 - The live app window, Tauri commands and the dialog plugin. Only the hidden print path ran.
+
+## Editor UI in the real app (2026-11-06)
+
+Debug build with the embedded frontend, driven through WebView2's local test connection (127.0.0.1 only, page-level input, no OS input). One synthetic test recording with made-up images; deleted afterwards.
+
+Worked:
+
+- Library lists the recording; opening it loads real screenshots through `read_screenshot`. The withheld step shows its notice and loads no image.
+- A redaction box drawn with the mouse saved in source pixels: in the exported `step-001.png` every sampled pixel of the red test block is black (0 of 7,500 red left), pixels outside are unchanged, and the control image without a box still has all 7,500 red.
+- Markdown export: two images, withheld step written as a text note. A second export to the same folder is refused with `output_not_empty`.
+- PDF export: 2 pages, no file path, user name or `file:` in the bytes. (Pixel redaction in PDFs is covered by the PDF self-test.)
+- Unsaved edits mark the document dirty; leaving offers Keep editing, Discard changes, Save and leave.
+- Delete asks first, says it cannot be undone, and removes the folder.
+
+Not tested: the native file pickers (argument shapes checked against the dialog plugin's source only), closing the window with unsaved changes, screen readers, keyboard-only use in WebView2. Markdown output has two level-1 headings when the document starts with a level-1 heading block (cosmetic).
