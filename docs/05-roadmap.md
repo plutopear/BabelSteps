@@ -23,6 +23,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Status (2026-11-06):** the current focus (Q18). The owner wants core capture to be bulletproof before Scribe-style work continues. No capture code ships yet: hooks, screenshots, UI Automation and redaction exist only in the M0 spike. Platform-free pieces already in `core` (fail-closed password check, PII scrubbing, event normalizer) are reused.
 
+**Status (2026-11-06, later):** the recording engine is built in `platform/windows` (branch `m1-capture`) and passes its self-test 36/36 on one monitor (`research/m1-results.md`). Next: wire it into the app (start, pause, stop, comments, hotkeys, tray indicator), then test real apps, multiple monitors, admin windows, sleep and lock, and build the parity checklist.
+
 - Start, pause, stop, comments, and hotkeys (A1–A6, C2–C3).
 - Multi-monitor and DPI correctness (A7).
 - Recording storage in the folder bundle format (C4).
