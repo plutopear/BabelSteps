@@ -24,7 +24,9 @@ pub const IMAGES_DIR: &str = "images";
 pub enum StorageError {
     Io(io::Error),
     Db(rusqlite::Error),
-    Json(serde_json::Error),
+    /// A stored block that could not be parsed. Position and kind only: the
+    /// serde message can quote the stored text.
+    Json { line: usize, column: usize, category: &'static str },
     /// The folder is not a BabelSteps bundle.
     NotABundle(PathBuf),
     /// The bundle was written by a newer version of the app.
@@ -44,7 +46,9 @@ impl fmt::Display for StorageError {
         match self {
             StorageError::Io(e) => write!(f, "file error: {e}"),
             StorageError::Db(e) => write!(f, "database error: {e}"),
-            StorageError::Json(e) => write!(f, "stored block could not be read: {e}"),
+            StorageError::Json { line, column, category } => {
+                write!(f, "stored block could not be read ({category} error at line {line}, column {column})")
+            }
             StorageError::NotABundle(p) => {
                 write!(f, "{} is not a BabelSteps recording", p.display())
             }
@@ -74,7 +78,14 @@ impl From<rusqlite::Error> for StorageError {
 }
 impl From<serde_json::Error> for StorageError {
     fn from(e: serde_json::Error) -> Self {
-        StorageError::Json(e)
+        use serde_json::error::Category;
+        let category = match e.classify() {
+            Category::Io => "io",
+            Category::Syntax => "syntax",
+            Category::Data => "data",
+            Category::Eof => "unexpected end",
+        };
+        StorageError::Json { line: e.line(), column: e.column(), category }
     }
 }
 
@@ -121,7 +132,7 @@ pub fn safe_folder_stem(title: &str) -> String {
 }
 
 /// CON, PRN, AUX, NUL, COM1-9, LPT1-9, also when followed by an extension.
-fn is_reserved_device_name(name: &str) -> bool {
+pub(crate) fn is_reserved_device_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").trim_end();
     let up = stem.to_ascii_uppercase();
     matches!(up.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
@@ -482,6 +493,18 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    #[test]
+    fn json_errors_do_not_quote_stored_values() {
+        // serde's own message here would name the unknown variant.
+        let err = serde_json::from_str::<Block>(r#"{"type":"nope-hunter2"}"#).unwrap_err();
+        assert!(err.to_string().contains("hunter2"), "control: serde quotes the value");
+        let err = StorageError::from(err);
+        for shown in [err.to_string(), format!("{err:?}")] {
+            assert!(!shown.contains("hunter2"), "{shown}");
+        }
+        assert!(matches!(err, StorageError::Json { line: 1, .. }));
+    }
 
     /// Temp directory removed on drop.
     struct TempDir(PathBuf);

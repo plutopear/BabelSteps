@@ -57,19 +57,33 @@ pub struct Match {
 }
 
 /// Why user rules could not be built.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CustomRuleError {
-    /// A custom regex does not compile.
-    InvalidRegex { pattern: String, reason: String },
+    /// A custom word or regex does not compile. `index` is 1-based within its
+    /// own list (words or regexes), so the UI can point at it.
+    InvalidRegex { word: bool, index: usize, pattern: String, reason: String },
     /// A custom word is empty or only whitespace, so it could match nothing useful.
     EmptyWord,
+}
+
+/// Kind only: the pattern is the user's own text and the regex message quotes
+/// it, so neither goes into logged state. `Display` shows only the position;
+/// the UI reads `pattern` and `reason` from the fields when it shows the user.
+impl fmt::Debug for CustomRuleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CustomRuleError::InvalidRegex { .. } => f.write_str("CustomRuleError::InvalidRegex"),
+            CustomRuleError::EmptyWord => f.write_str("CustomRuleError::EmptyWord"),
+        }
+    }
 }
 
 impl fmt::Display for CustomRuleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CustomRuleError::InvalidRegex { pattern, reason } => {
-                write!(f, "invalid custom pattern \"{pattern}\": {reason}")
+            CustomRuleError::InvalidRegex { word, index, .. } => {
+                let kind = if *word { "word" } else { "pattern" };
+                write!(f, "custom {kind} {index} is not valid")
             }
             CustomRuleError::EmptyWord => write!(f, "a custom word is empty"),
         }
@@ -101,7 +115,7 @@ impl CustomRules {
         R::Item: AsRef<str>,
     {
         let mut rules = Vec::new();
-        for word in words {
+        for (i, word) in words.into_iter().enumerate() {
             let word = word.as_ref().trim();
             if word.is_empty() {
                 return Err(CustomRuleError::EmptyWord);
@@ -111,14 +125,21 @@ impl CustomRules {
             let end = if is_word(word.chars().next_back()) { r"\b" } else { "" };
             let pattern = format!("{start}{}{end}", regex::escape(word));
             let rule = RegexBuilder::new(&pattern).case_insensitive(true).build().map_err(|e| {
-                CustomRuleError::InvalidRegex { pattern: word.to_string(), reason: e.to_string() }
+                CustomRuleError::InvalidRegex {
+                    word: true,
+                    index: i + 1,
+                    pattern: word.to_string(),
+                    reason: e.to_string(),
+                }
             })?;
             rules.push(rule);
         }
         let words = rules.len();
-        for pattern in regexes {
+        for (i, pattern) in regexes.into_iter().enumerate() {
             let pattern = pattern.as_ref();
             let rule = Regex::new(pattern).map_err(|e| CustomRuleError::InvalidRegex {
+                word: false,
+                index: i + 1,
                 pattern: pattern.to_string(),
                 reason: e.to_string(),
             })?;
@@ -153,9 +174,9 @@ pub fn scrub(text: &str, custom: &CustomRules) -> String {
     out
 }
 
-/// Finds sensitive spans, sorted by start and never overlapping. When two
-/// candidates overlap the longest wins and the other is dropped whole, so a
-/// partly overlapped shorter match leaves its uncovered part in the text.
+/// Finds sensitive spans, sorted by start and never overlapping. Overlapping
+/// candidates merge into one span covering all of them, labeled by the longest,
+/// so no part of any match is left in the text.
 pub fn find(text: &str, custom: &CustomRules) -> Vec<Match> {
     let mut candidates = Vec::new();
     for rule in &custom.rules {
@@ -175,16 +196,23 @@ pub fn find(text: &str, custom: &CustomRules) -> Vec<Match> {
 }
 
 fn resolve_overlaps(mut candidates: Vec<Match>) -> Vec<Match> {
-    // Stable, so on a tie the earlier detector above wins.
-    candidates.sort_by_key(|m| (std::cmp::Reverse(m.end - m.start), m.start));
-    let mut kept: Vec<Match> = Vec::new();
+    // Stable, so on a tie the earlier detector above wins the label.
+    candidates.sort_by_key(|m| (m.start, std::cmp::Reverse(m.end - m.start)));
+    let mut merged: Vec<(Match, usize)> = Vec::new();
     for c in candidates {
-        if kept.iter().all(|k| c.end <= k.start || c.start >= k.end) {
-            kept.push(c);
+        let c_len = c.end - c.start;
+        match merged.last_mut() {
+            Some((last, label_len)) if c.start < last.end => {
+                last.end = last.end.max(c.end);
+                if c_len > *label_len {
+                    last.kind = c.kind;
+                    *label_len = c_len;
+                }
+            }
+            _ => merged.push((c, c_len)),
         }
     }
-    kept.sort_by_key(|m| m.start);
-    kept
+    merged.into_iter().map(|(m, _)| m).collect()
 }
 
 macro_rules! static_regex {
@@ -606,6 +634,21 @@ mod tests {
     }
 
     #[test]
+    fn debug_of_custom_rules_and_errors_shows_no_patterns() {
+        let rules = CustomRules::new(["zebracorp"], ["quokka[0-9]+"]).unwrap();
+        let shown = format!("{rules:?}");
+        assert!(!shown.contains("zebracorp") && !shown.contains("quokka"), "{shown}");
+        let err = CustomRules::new([] as [&str; 0], ["quokka("]).unwrap_err();
+        assert!(matches!(err, CustomRuleError::InvalidRegex { .. }));
+        let shown = format!("{err:?}");
+        assert!(!shown.contains("quokka"), "{shown}");
+        // Display may reach a log, so it gives the position only.
+        let shown = err.to_string();
+        assert!(!shown.contains("quokka"), "{shown}");
+        assert_eq!(shown, "custom pattern 1 is not valid");
+    }
+
+    #[test]
     fn custom_words_match_whole_words_ignoring_case() {
         let rules = CustomRules::new(["acme", "corp.local"], [] as [&str; 0]).unwrap();
         assert_eq!(scrub("ACME and Acme", &rules), "[custom] and [custom]");
@@ -658,6 +701,12 @@ mod tests {
             find("::ffff:192.0.2.1", &CustomRules::none()),
             vec![Match { start: 0, end: 16, kind: Kind::IpAddress }]
         );
+    }
+
+    #[test]
+    fn partly_overlapping_matches_leave_nothing_behind() {
+        let rules = CustomRules::new([] as [&str; 0], ["abcdef", "defghij"]).unwrap();
+        assert_eq!(scrub("xx abcdefghij yy", &rules), "xx [custom] yy");
     }
 
     #[test]

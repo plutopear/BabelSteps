@@ -10,11 +10,11 @@ use crate::html::to_html;
 use crate::image_export::prepare_image;
 use crate::markdown::to_markdown;
 use crate::model::{Block, Recording, Rect};
+use crate::storage::is_reserved_device_name;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
 pub enum ExportError {
     Io(String),
     Image(String),
@@ -24,6 +24,12 @@ pub enum ExportError {
     MissingImage { owner: String, path: String },
     /// Two blocks use one image path but need different redactions.
     ConflictingRedactions { owner: String, path: String },
+    /// Two image paths that differ only in letter case. Windows and macOS would
+    /// write both to one file.
+    CaseCollision { owner: String, path: String },
+    /// The output folder already holds a previous export (`document.md`,
+    /// `document.html` or `images`). Nothing is overwritten or deleted.
+    OutputNotEmpty { name: String },
 }
 
 impl fmt::Display for ExportError {
@@ -36,6 +42,32 @@ impl fmt::Display for ExportError {
             ExportError::ConflictingRedactions { owner, path } => {
                 write!(f, "{owner}: image {path:?} is shared with different redactions")
             }
+            ExportError::CaseCollision { owner, path } => {
+                write!(f, "{owner}: image {path:?} differs from another image only in letter case")
+            }
+            ExportError::OutputNotEmpty { name } => {
+                write!(f, "the output folder already contains {name}; choose an empty folder")
+            }
+        }
+    }
+}
+
+/// Kind and owner only: image paths can come from imported Markdown (user text),
+/// and I/O messages can quote paths. `Display` is for showing the user.
+impl fmt::Debug for ExportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (kind, owner) = match self {
+            ExportError::Io(_) => ("Io", None),
+            ExportError::Image(_) => ("Image", None),
+            ExportError::UnsafePath { owner, .. } => ("UnsafePath", Some(owner)),
+            ExportError::MissingImage { owner, .. } => ("MissingImage", Some(owner)),
+            ExportError::ConflictingRedactions { owner, .. } => ("ConflictingRedactions", Some(owner)),
+            ExportError::CaseCollision { owner, .. } => ("CaseCollision", Some(owner)),
+            ExportError::OutputNotEmpty { .. } => ("OutputNotEmpty", None),
+        };
+        match owner {
+            Some(owner) => write!(f, "ExportError::{kind} ({owner})"),
+            None => write!(f, "ExportError::{kind}"),
         }
     }
 }
@@ -49,8 +81,6 @@ pub struct ExportReport {
     pub images_with_redactions: usize,
     pub withheld: usize,
 }
-
-const RESERVED: [&str; 8] = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1", "LPT2"];
 
 /// Accept only `images/<name>...` made of plain names joined by `/`. Rejects
 /// absolute paths, drive prefixes, backslashes, `..`, `.`, empty parts, and
@@ -69,7 +99,7 @@ pub fn validate_image_path(p: &str) -> bool {
             && *c != ".."
             && !c.ends_with(['.', ' '])
             && !c.chars().any(|ch| ch.is_control())
-            && !RESERVED.contains(&c.split('.').next().unwrap_or("").to_ascii_uppercase().as_str())
+            && !is_reserved_device_name(c)
     })
 }
 
@@ -82,7 +112,8 @@ fn prepare_all(rec: &Recording, source_dir: &Path) -> Result<Prepared, ExportErr
     let root = std::fs::canonicalize(source_dir).map_err(|e| ExportError::Io(format!("recording folder: {e}")))?;
     let mut report = ExportReport::default();
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut seen: HashMap<String, Vec<Rect>> = HashMap::new();
+    // Keyed on the lowercased path: the output folder may be case-insensitive.
+    let mut seen: HashMap<String, (String, Vec<Rect>)> = HashMap::new();
 
     let mut step_no = 0usize;
     for block in &rec.blocks {
@@ -107,7 +138,10 @@ fn prepare_all(rec: &Recording, source_dir: &Path) -> Result<Prepared, ExportErr
         if !validate_image_path(path) {
             return Err(ExportError::UnsafePath { owner, path: path.to_string() });
         }
-        if let Some(prev) = seen.get(path) {
+        if let Some((prev_path, prev)) = seen.get(&path.to_lowercase()) {
+            if prev_path != path {
+                return Err(ExportError::CaseCollision { owner, path: path.to_string() });
+            }
             if prev.as_slice() != redactions {
                 return Err(ExportError::ConflictingRedactions { owner, path: path.to_string() });
             }
@@ -133,10 +167,21 @@ fn prepare_all(rec: &Recording, source_dir: &Path) -> Result<Prepared, ExportErr
         if !redactions.is_empty() {
             report.images_with_redactions += 1;
         }
-        seen.insert(path.to_string(), redactions.to_vec());
+        seen.insert(path.to_lowercase(), (path.to_string(), redactions.to_vec()));
         files.push((path.to_string(), prepared));
     }
     Ok(Prepared { files, report })
+}
+
+/// Refuses a folder that holds an earlier export, so stale files can never mix
+/// with new ones and nothing of the user's is deleted or overwritten.
+fn check_output_clear(out_dir: &Path) -> Result<(), ExportError> {
+    for name in ["document.md", "document.html", "images"] {
+        if std::fs::symlink_metadata(out_dir.join(name)).is_ok() {
+            return Err(ExportError::OutputNotEmpty { name: name.to_string() });
+        }
+    }
+    Ok(())
 }
 
 fn write_bundle(out_dir: &Path, doc_name: &str, doc: &str, files: &[(String, Vec<u8>)]) -> Result<(), ExportError> {
@@ -155,6 +200,7 @@ fn write_bundle(out_dir: &Path, doc_name: &str, doc: &str, files: &[(String, Vec
 
 /// Write `document.md` and `images/` into `out_dir`.
 pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
+    check_output_clear(out_dir)?;
     let p = prepare_all(rec, source_dir)?;
     write_bundle(out_dir, "document.md", &to_markdown(rec), &p.files)?;
     Ok(p.report)
@@ -163,6 +209,7 @@ pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Re
 /// Write `document.html` and `images/` into `out_dir`, ready for a webview to
 /// print (PDF) or to keep as an HTML export.
 pub fn prepare_html_export(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
+    check_output_clear(out_dir)?;
     let p = prepare_all(rec, source_dir)?;
     write_bundle(out_dir, "document.html", &to_html(rec), &p.files)?;
     Ok(p.report)
@@ -203,6 +250,82 @@ mod tests {
         ] {
             assert!(!validate_image_path(bad), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn all_windows_device_names_are_rejected() {
+        for name in ["COM3", "com9.png", "LPT3", "lpt9.txt", "CONIN$", "AUX", "Nul.x"] {
+            assert!(!validate_image_path(&format!("images/{name}")), "{name}");
+            assert!(!validate_image_path(&format!("images/sub/{name}")), "{name}");
+        }
+        assert!(validate_image_path("images/COM10.png"));
+        assert!(validate_image_path("images/com.png"));
+    }
+
+    #[test]
+    fn case_only_collision_is_an_error_even_with_equal_redactions() {
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        let mut rec = generate_bundle(src.path(), 1, 8, 8);
+        let mut second = rec.blocks[0].clone();
+        if let Block::Step(s) = &mut second {
+            s.screenshot = s.screenshot.as_ref().map(|p| p.to_uppercase().replace("IMAGES/", "images/"));
+        }
+        // Same redactions, so only the case differs.
+        assert_ne!(rec.blocks[0], second);
+        rec.blocks.push(second);
+        let r = export_markdown(&rec, src.path(), out.path());
+        assert!(matches!(r, Err(ExportError::CaseCollision { .. })), "{r:?}");
+        assert!(!out.path().join("images").exists());
+    }
+
+    #[test]
+    fn identical_paths_with_identical_redactions_are_shared() {
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        let mut rec = generate_bundle(src.path(), 1, 8, 8);
+        let again = rec.blocks[0].clone();
+        rec.blocks.push(again);
+        let r = export_markdown(&rec, src.path(), out.path()).unwrap();
+        assert_eq!(r.images_written, 1);
+    }
+
+    #[test]
+    fn a_folder_with_a_previous_export_is_refused_and_left_alone() {
+        let src = TempDir::new("src");
+        let rec = generate_bundle(src.path(), 1, 8, 8);
+        for stale in ["document.md", "document.html", "images"] {
+            for html in [false, true] {
+                let out = TempDir::new("out");
+                let mark = out.path().join(stale);
+                if stale == "images" {
+                    std::fs::create_dir(&mark).unwrap();
+                    std::fs::write(mark.join("mine.txt"), "keep").unwrap();
+                } else {
+                    std::fs::write(&mark, "keep").unwrap();
+                }
+                let r = if html {
+                    prepare_html_export(&rec, src.path(), out.path())
+                } else {
+                    export_markdown(&rec, src.path(), out.path())
+                };
+                assert!(matches!(r, Err(ExportError::OutputNotEmpty { .. })), "{stale} html={html}: {r:?}");
+                let kept = if stale == "images" { mark.join("mine.txt") } else { mark };
+                assert_eq!(std::fs::read_to_string(kept).unwrap(), "keep");
+                let entries = std::fs::read_dir(out.path()).unwrap().count();
+                assert_eq!(entries, 1, "nothing may be added");
+            }
+        }
+    }
+
+    #[test]
+    fn exporting_twice_into_one_folder_is_refused_the_second_time() {
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        let rec = generate_bundle(src.path(), 1, 8, 8);
+        export_markdown(&rec, src.path(), out.path()).unwrap();
+        assert!(matches!(export_markdown(&rec, src.path(), out.path()), Err(ExportError::OutputNotEmpty { .. })));
+        assert!(matches!(prepare_html_export(&rec, src.path(), out.path()), Err(ExportError::OutputNotEmpty { .. })));
     }
 
     #[test]

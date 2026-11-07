@@ -97,7 +97,9 @@ struct Run {
 
 impl Run {
     /// Applies one key's signals. Must run before that key's text is used.
-    fn observe(&mut self, signals: &PasswordSignals) {
+    /// Returns the run's screenshot path if this key made it unusable.
+    #[must_use]
+    fn observe(&mut self, signals: &PasswordSignals) -> Option<String> {
         if !signals.text_allowed() {
             self.erased = true;
             wipe(&mut self.buffer);
@@ -107,8 +109,9 @@ impl Run {
         }
         if !signals.screenshot_allowed() {
             self.withheld = true;
-            self.screenshot = None;
+            return self.screenshot.take();
         }
+        None
     }
 }
 
@@ -125,6 +128,8 @@ pub struct Normalizer {
     next_step: u64,
     paused: bool,
     run: Option<Run>,
+    /// Screenshot paths passed in that no emitted step uses.
+    discarded: Vec<String>,
 }
 
 /// Leaves out the buffer, so logged state can never show typed text.
@@ -135,13 +140,29 @@ impl fmt::Debug for Normalizer {
             .field("next_step", &self.next_step)
             .field("paused", &self.paused)
             .field("in_run", &self.run.is_some())
+            .field("discarded", &self.discarded.len())
             .finish()
     }
 }
 
 impl Normalizer {
     pub fn new(config: NormalizerConfig) -> Self {
-        Self { config, next_step: 1, paused: false, run: None }
+        Self { config, next_step: 1, paused: false, run: None, discarded: Vec::new() }
+    }
+
+    /// Screenshot paths that were passed in but ended up on no emitted step:
+    /// withheld by a late signal, extra keys of a run, empty runs, events
+    /// dropped while paused, and ignored keys. Drains the list.
+    ///
+    /// The caller must delete these files or, better, not write an image until
+    /// its step is emitted, because a late signal can withhold it. Callers
+    /// must call `password::PasswordSignals::screenshot_allowed` before writing.
+    pub fn take_discarded_screenshots(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.discarded)
+    }
+
+    fn discard(&mut self, path: Option<String>) {
+        self.discarded.extend(path);
     }
 
     /// Feeds one event and returns any steps it finished, in order.
@@ -149,19 +170,23 @@ impl Normalizer {
         let mut out = Vec::new();
         if self.paused {
             // Nothing typed while paused may reach a step.
-            if matches!(event, Event::Resume) {
-                self.paused = false;
+            match event {
+                Event::Resume => self.paused = false,
+                Event::Click { screenshot, .. } | Event::Key { screenshot, .. } => self.discard(screenshot),
+                _ => {}
             }
             return out;
         }
         match event {
             Event::Click { t_ms, button, x, y, target, signals, screenshot } => {
                 self.flush_run(&mut out);
+                let target = self.scrub_target(target);
                 let title = crate::model::describe_click(button, x, y, target.as_ref());
                 let action = Action::Click { button, x, y };
                 self.push_event_step(&mut out, t_ms, action, title, target, &signals, screenshot);
             }
             Event::Key { t_ms, key, mods, target, signals, screenshot } => {
+                let target = self.scrub_target(target);
                 self.on_key(&mut out, t_ms, key, mods, target, signals, screenshot);
             }
             Event::FocusChanged { .. } => self.flush_run(&mut out),
@@ -177,10 +202,21 @@ impl Normalizer {
             }
             Event::ManualStep { t_ms, title } => {
                 self.flush_run(&mut out);
+                let title = pii::scrub(&title, &self.config.custom);
                 self.push_plain_step(&mut out, t_ms, Action::Manual, title);
             }
         }
         out
+    }
+
+    /// Element names and window titles come from the screen and can hold
+    /// customer data ("Signed in as a@b.co"), so they are scrubbed like typed text.
+    fn scrub_target(&self, target: Option<Target>) -> Option<Target> {
+        target.map(|mut t| {
+            t.name = pii::scrub(&t.name, &self.config.custom);
+            t.window_title = t.window_title.map(|w| pii::scrub(&w, &self.config.custom));
+            t
+        })
     }
 
     /// Ends the current run and returns its step, if it produces one.
@@ -203,15 +239,33 @@ impl Normalizer {
     ) {
         // First, always: this key's signals judge the run it arrived in, even
         // if the key is the one that ends the run.
-        if let Some(run) = &mut self.run {
-            run.observe(&signals);
+        let dropped = self.run.as_mut().and_then(|run| {
+            let dropped = run.observe(&signals);
             if run.target.is_none() {
                 run.target = target.clone();
             }
-        }
+            dropped
+        });
+        self.discard(dropped);
 
         if mods.ctrl || mods.alt || mods.meta {
-            let Some(combo) = combo_name(&key, mods) else { return };
+            // Ctrl+Alt is how AltGr arrives on many layouts, so this could be a
+            // character of a password. Never name it unless typed text is
+            // being recorded and this key's check passed.
+            let printable = match &key {
+                Key::Char(c) => !c.is_control(),
+                Key::Text(t) => !t.is_empty(),
+                _ => false,
+            };
+            let maybe_altgr = mods.ctrl && mods.alt && !mods.meta && printable;
+            if maybe_altgr && !(self.config.keystrokes_enabled && signals.text_allowed()) {
+                self.discard(screenshot);
+                return;
+            }
+            let Some(combo) = combo_name(&key, mods) else {
+                self.discard(screenshot);
+                return;
+            };
             self.flush_run(out);
             self.push_key_step(out, t_ms, combo, target, &signals, screenshot);
             return;
@@ -220,39 +274,48 @@ impl Normalizer {
         match key {
             Key::Text(text) => {
                 if text.is_empty() {
+                    self.discard(screenshot);
                     return;
                 }
                 let keep_text = self.config.keystrokes_enabled;
-                let run = self.run.get_or_insert_with(|| {
+                let mut extra = screenshot;
+                if self.run.is_none() {
                     let mut run = Run {
                         started_ms: t_ms,
                         buffer: String::new(),
                         target,
-                        screenshot,
+                        screenshot: extra.take(),
                         withheld: false,
                         erased: false,
                         saw_yes: false,
                     };
-                    run.observe(&signals);
-                    run
-                });
-                if keep_text && !run.erased {
-                    run.buffer.push_str(&text);
+                    let dropped = run.observe(&signals);
+                    self.run = Some(run);
+                    self.discard(dropped);
+                }
+                // Only the first key's screenshot is kept.
+                self.discard(extra);
+                if let Some(run) = &mut self.run {
+                    if keep_text && !run.erased {
+                        run.buffer.push_str(&text);
+                    }
                 }
             }
             Key::Backspace => {
                 if let Some(run) = &mut self.run {
                     run.buffer.pop();
                 }
+                self.discard(screenshot);
             }
             // The platform layer should have sent Text. Do not guess.
-            Key::Char(_) => {}
+            Key::Char(_) => self.discard(screenshot),
             Key::Enter | Key::Tab | Key::Escape | Key::Named(_) => {
                 self.flush_run(out);
-                if self.config.keystrokes_enabled {
-                    if let Some(combo) = combo_name(&key, mods) {
+                match combo_name(&key, mods) {
+                    Some(combo) if self.config.keystrokes_enabled => {
                         self.push_key_step(out, t_ms, combo, target, &signals, screenshot);
                     }
+                    _ => self.discard(screenshot),
                 }
             }
         }
@@ -282,7 +345,9 @@ impl Normalizer {
             }
         } else {
             if run.buffer.is_empty() {
-                return; // A run left empty produces no step.
+                // A run left empty produces no step.
+                self.discard(run.screenshot.take());
+                return;
             }
             text = pii::scrub(&run.buffer, &self.config.custom);
             wipe(&mut run.buffer);
@@ -338,6 +403,9 @@ impl Normalizer {
     ) {
         mark_password(&mut target, signals.any_yes());
         let allowed = signals.screenshot_allowed();
+        if !allowed {
+            self.discard(screenshot.clone());
+        }
         let step = StepBlock {
             id: self.next_id(),
             action,
@@ -762,6 +830,29 @@ mod tests {
     }
 
     #[test]
+    fn element_names_and_manual_titles_are_scrubbed() {
+        let mut n = normalizer(true);
+        let leaky = Target {
+            name: "Signed in as me@example.com".to_string(),
+            window_title: Some("Ticket for me@example.com".to_string()),
+            process_name: "app.exe".to_string(),
+            ..Default::default()
+        };
+        let mut out = n.push(Event::Click {
+            t_ms: 1,
+            button: crate::model::MouseButton::Left,
+            x: 1,
+            y: 2,
+            target: Some(leaky),
+            signals: CLEAN,
+            screenshot: None,
+        });
+        out.extend(n.push(Event::ManualStep { t_ms: 2, title: "Mail me@example.com".to_string() }));
+        assert_eq!(out.len(), 2);
+        assert_absent(&n, &out, "me@example.com");
+    }
+
+    #[test]
     fn scrubbed_text_is_all_that_is_kept() {
         let mut n = normalizer(true);
         let mut out = Vec::new();
@@ -1065,6 +1156,171 @@ mod tests {
         let all = steps(&out);
         assert_eq!(all[0].screenshot.as_deref(), Some("run.png"));
         assert_eq!(all[1].screenshot.as_deref(), Some("enter.png"));
+    }
+
+    // ---- Discarded screenshots ----
+
+    fn shot_of(e: &Event) -> Option<String> {
+        match e {
+            Event::Click { screenshot, .. } | Event::Key { screenshot, .. } => screenshot.clone(),
+            _ => None,
+        }
+    }
+
+    /// Every path passed in must be on exactly one emitted step or in the
+    /// discarded list: never both, never neither, never twice.
+    fn assert_every_shot_accounted(label: &str, events: Vec<Event>) {
+        let passed: Vec<String> = events.iter().filter_map(shot_of).collect();
+        let mut n = normalizer(true);
+        let mut out = Vec::new();
+        for e in events {
+            out.extend(n.push(e));
+        }
+        out.extend(n.finish());
+        let used: Vec<String> = steps(&out).iter().filter_map(|s| s.screenshot.clone()).collect();
+        let discarded = n.take_discarded_screenshots();
+        for p in &passed {
+            let in_steps = used.iter().filter(|u| *u == p).count();
+            let in_list = discarded.iter().filter(|d| *d == p).count();
+            assert_eq!(in_steps + in_list, 1, "{label}: {p} used {in_steps}x, discarded {in_list}x");
+        }
+        assert_eq!(used.len() + discarded.len(), passed.len(), "{label}: stray paths {used:?} {discarded:?}");
+        assert!(n.take_discarded_screenshots().is_empty(), "{label}: list not drained");
+    }
+
+    #[test]
+    fn every_screenshot_is_on_a_step_or_discarded() {
+        let k = |key: Key, mods: Mods, sig: PasswordSignals, p: &str| key_event(key, mods, sig, Some(p));
+        let none = Mods::default();
+        let ctrl_alt = Mods { ctrl: true, alt: true, ..none };
+        let t = |c: &str| Key::Text(c.to_string());
+        let cases: Vec<(&str, Vec<Event>)> = vec![
+            ("click kept", vec![click(CLEAN, Some("a"))]),
+            ("click withheld", vec![click(UNKNOWN, Some("a"))]),
+            ("click in unscanned password", vec![click(PW_UNSCANNED, Some("a"))]),
+            ("run, later keys dropped", vec![k(t("x"), none, CLEAN, "a"), k(t("y"), none, CLEAN, "b"), k(t("z"), none, CLEAN, "c")]),
+            ("late Unknown withholds the held path", vec![k(t("x"), none, CLEAN, "a"), k(t("y"), none, UNKNOWN, "b")]),
+            ("late Yes withholds the held path", vec![k(t("x"), none, CLEAN, "a"), k(t("y"), none, PW_UNSCANNED, "b"), k(t("z"), none, CLEAN, "c")]),
+            ("first key withheld", vec![k(t("x"), none, UNKNOWN, "a"), k(t("y"), none, CLEAN, "b")]),
+            ("late signal on a shortcut ends the run", vec![k(t("x"), none, CLEAN, "a"), k(Key::Char('v'), Mods { ctrl: true, ..none }, PW_UNSCANNED, "b")]),
+            ("late signal on Enter", vec![k(t("x"), none, CLEAN, "a"), k(Key::Enter, none, UNKNOWN, "b")]),
+            ("empty run", vec![k(t("x"), none, CLEAN, "a"), k(Key::Backspace, none, CLEAN, "b"), Event::FocusChanged { t_ms: 1 }]),
+            ("empty text key", vec![k(t(""), none, CLEAN, "a")]),
+            ("ignored Char", vec![k(Key::Char('q'), none, CLEAN, "a")]),
+            ("backspace with no run", vec![k(Key::Backspace, none, CLEAN, "a")]),
+            ("unnameable combo", vec![k(t("long text"), Mods { ctrl: true, ..none }, CLEAN, "a")]),
+            ("run then Enter and Tab", vec![k(t("x"), none, CLEAN, "a"), k(Key::Enter, none, CLEAN, "b"), k(Key::Tab, none, CLEAN, "c")]),
+            ("AltGr char refused", vec![k(Key::Char('q'), ctrl_alt, UNKNOWN, "a")]),
+            ("AltGr char inside a run", vec![k(t("x"), none, CLEAN, "a"), k(Key::Char('q'), ctrl_alt, PW_UNSCANNED, "b")]),
+            ("paused", vec![Event::Pause, click(CLEAN, Some("a")), k(t("x"), none, CLEAN, "b"), k(Key::Enter, none, CLEAN, "c"), Event::Resume, click(CLEAN, Some("d"))]),
+            ("pause flushes the run, then drops", vec![k(t("x"), none, CLEAN, "a"), Event::Pause, k(t("y"), none, CLEAN, "b")]),
+        ];
+        for (label, events) in cases {
+            assert_every_shot_accounted(label, events);
+        }
+    }
+
+    #[test]
+    fn discard_list_has_the_expected_paths() {
+        let mut n = normalizer(true);
+        n.push(key_event(Key::Text("a".into()), Mods::default(), CLEAN, Some("first.png")));
+        n.push(key_event(Key::Text("b".into()), Mods::default(), CLEAN, Some("second.png")));
+        assert_eq!(n.take_discarded_screenshots(), ["second.png"]);
+        n.push(key_event(Key::Text("c".into()), Mods::default(), UNKNOWN, Some("third.png")));
+        assert_eq!(n.take_discarded_screenshots(), ["first.png", "third.png"]);
+        n.finish();
+        assert!(n.take_discarded_screenshots().is_empty());
+    }
+
+    #[test]
+    fn keystrokes_off_discards_unused_press_screenshots() {
+        let mut n = normalizer(false);
+        n.push(key_event(Key::Enter, Mods::default(), CLEAN, Some("e.png")));
+        assert_eq!(n.take_discarded_screenshots(), ["e.png"]);
+    }
+
+    // ---- Possible AltGr ----
+
+    const CTRL_ALT: Mods = Mods { ctrl: true, alt: true, shift: false, meta: false };
+
+    #[test]
+    fn ctrl_alt_printable_in_a_password_field_is_never_named() {
+        for keystrokes in [true, false] {
+            for sig in [PW_UNSCANNED, PW_SCANNED, UNKNOWN] {
+                let mut n = normalizer(keystrokes);
+                let mut out = n.push(key_event(Key::Char('h'), CTRL_ALT, sig, Some("s.png")));
+                out.extend(n.finish());
+                assert!(out.is_empty(), "keystrokes={keystrokes}: {out:?}");
+                assert_absent(&n, &out, "Ctrl+Alt+H");
+                assert_eq!(n.take_discarded_screenshots(), ["s.png"]);
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_alt_text_in_a_password_field_is_never_named() {
+        // Platform layers send printable keys as `Text`, so AltGr usually arrives this way.
+        for keystrokes in [true, false] {
+            for sig in [PW_UNSCANNED, PW_SCANNED, UNKNOWN] {
+                let mut n = normalizer(keystrokes);
+                let mut out = n.push(key_event(Key::Text("h".into()), CTRL_ALT, sig, Some("s.png")));
+                out.extend(n.finish());
+                assert!(out.is_empty(), "keystrokes={keystrokes}: {out:?}");
+                assert_absent(&n, &out, "Ctrl+Alt+H");
+                assert_eq!(n.take_discarded_screenshots(), ["s.png"]);
+            }
+        }
+        let mut n = normalizer(false);
+        let out = n.push(key_event(Key::Text("h".into()), CTRL_ALT, CLEAN, None));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn ctrl_alt_printable_with_keystrokes_off_is_never_named() {
+        let mut n = normalizer(false);
+        let out = n.push(key_event(Key::Char('h'), CTRL_ALT, CLEAN, None));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn ctrl_alt_printable_with_a_clean_check_is_still_named() {
+        let mut n = normalizer(true);
+        let out = n.push(key_event(Key::Char('h'), CTRL_ALT, CLEAN, None));
+        assert_eq!(one(&out).title, "Press Ctrl+Alt+H");
+    }
+
+    #[test]
+    fn ctrl_alt_with_a_named_key_is_unaffected() {
+        let mut n = normalizer(false);
+        let out = n.push(key_event(Key::Named("Delete".into()), CTRL_ALT, CLEAN, None));
+        assert_eq!(one(&out).title, "Press Ctrl+Alt+Delete");
+    }
+
+    #[test]
+    fn a_not_allowed_altgr_key_taints_the_run_and_adds_no_step() {
+        let mut n = normalizer(true);
+        let mut out = Vec::new();
+        type_chars(&mut n, SECRET, CLEAN, &mut out);
+        out.extend(n.push(key_event(Key::Char('q'), CTRL_ALT, UNKNOWN, None)));
+        assert!(out.is_empty());
+        assert_eq!(n.run.as_ref().unwrap().buffer, "");
+        out.extend(n.finish());
+        assert_absent(&n, &out, SECRET);
+        let step = one(&out);
+        assert_eq!(step.description, TEXT_NOT_RECORDED);
+        assert!(step.screenshot_withheld);
+    }
+
+    #[test]
+    fn other_combos_in_a_password_field_are_still_named() {
+        let mut n = normalizer(true);
+        let out = n.push(key_event(Key::Char('v'), Mods { ctrl: true, ..Mods::default() }, PW_UNSCANNED, None));
+        let step = one(&out);
+        assert_eq!(step.title, "Paste");
+        assert!(step.screenshot_withheld);
+        // Alt alone, Ctrl+Alt+Meta and non-printable keys are not the AltGr case.
+        let out = n.push(key_event(Key::Char('q'), Mods { alt: true, ..Mods::default() }, PW_UNSCANNED, None));
+        assert_eq!(one(&out).title, "Press Alt+Q");
     }
 
     // ---- Ordering ----

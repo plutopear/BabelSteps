@@ -18,6 +18,7 @@
 //! tools may merge them into one.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 
 use crate::markdown::{unguard_line, IMAGE_ALT, STEP_END_MARK, WITHHELD_SENTENCE};
 use crate::model::{Action, Block, CalloutKind, Recording, StepBlock};
@@ -47,7 +48,9 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' {
-            if let Some(v) = s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            // from_str_radix would also accept a leading '+', so check the digits first.
+            let hex = s.get(i + 1..i + 3).filter(|h| h.bytes().all(|c| c.is_ascii_hexdigit()));
+            if let Some(v) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
                 out.push(v);
                 i += 3;
                 continue;
@@ -115,20 +118,24 @@ fn join_unguarded<'a>(lines: impl Iterator<Item = &'a str>) -> String {
 
 pub fn from_markdown(md: &str) -> Recording {
     // Split into chunks separated by blank lines; lines are trimmed.
-    let mut chunks: VecDeque<Vec<String>> = VecDeque::new();
-    let mut cur: Vec<String> = Vec::new();
+    // All lines live in one vector; a chunk is a range of it, so putting the
+    // tail of a chunk back is O(1) rather than a copy.
+    let mut lines: Vec<String> = Vec::new();
+    let mut chunks: VecDeque<Range<usize>> = VecDeque::new();
+    let mut start = 0usize;
     for line in md.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
         let t = line.trim();
         if t.is_empty() {
-            if !cur.is_empty() {
-                chunks.push_back(std::mem::take(&mut cur));
+            if lines.len() > start {
+                chunks.push_back(start..lines.len());
+                start = lines.len();
             }
         } else {
-            cur.push(t.to_string());
+            lines.push(t.to_string());
         }
     }
-    if !cur.is_empty() {
-        chunks.push_back(cur);
+    if lines.len() > start {
+        chunks.push_back(start..lines.len());
     }
 
     let mut title: Option<String> = None;
@@ -141,12 +148,13 @@ pub fn from_markdown(md: &str) -> Recording {
         format!("b{next_id}")
     };
 
-    while let Some(chunk) = queue_pop(&mut chunks) {
+    while let Some(range) = chunks.pop_front() {
+        let chunk: &[String] = &lines[range.clone()];
         let first = chunk[0].as_str();
 
         // Headings are single lines; anything after one is a new chunk.
         if let Some((lvl, rest)) = heading_of(first) {
-            requeue(&mut chunks, &chunk[1..]);
+            requeue(&mut chunks, range.start + 1..range.end);
             open = None;
             if lvl == 1 && title.is_none() {
                 title = Some(unescape_plain(rest));
@@ -170,7 +178,7 @@ pub fn from_markdown(md: &str) -> Recording {
         }
 
         if first == STEP_END_MARK {
-            requeue(&mut chunks, &chunk[1..]);
+            requeue(&mut chunks, range.start + 1..range.end);
             open = None;
             continue;
         }
@@ -197,7 +205,7 @@ pub fn from_markdown(md: &str) -> Recording {
             open = None;
             let mut items = Vec::new();
             let mut used = 0;
-            for l in &chunk {
+            for l in chunk {
                 match list_marker(l) {
                     Some((o, text)) if o == ordered => {
                         items.push(unguard_line(text));
@@ -206,7 +214,7 @@ pub fn from_markdown(md: &str) -> Recording {
                     _ => break,
                 }
             }
-            requeue(&mut chunks, &chunk[used..]);
+            requeue(&mut chunks, range.start + used..range.end);
             blocks.push(Block::List { id: new_id(), ordered, items });
             continue;
         }
@@ -216,7 +224,7 @@ pub fn from_markdown(md: &str) -> Recording {
                 if let Some(Block::Step(s)) = blocks.last_mut() {
                     s.screenshot = Some(path);
                 }
-                requeue(&mut chunks, &chunk[1..]);
+                requeue(&mut chunks, range.start + 1..range.end);
                 open = None;
             } else {
                 open = None;
@@ -256,13 +264,9 @@ pub fn from_markdown(md: &str) -> Recording {
     rec
 }
 
-fn queue_pop(q: &mut VecDeque<Vec<String>>) -> Option<Vec<String>> {
-    q.pop_front()
-}
-
-fn requeue(q: &mut VecDeque<Vec<String>>, rest: &[String]) {
+fn requeue(q: &mut VecDeque<Range<usize>>, rest: Range<usize>) {
     if !rest.is_empty() {
-        q.push_front(rest.to_vec());
+        q.push_front(rest);
     }
 }
 
@@ -416,5 +420,15 @@ mod tests {
         assert_eq!(percent_decode("a%20b%28c%29%25"), "a b(c)%");
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%zz"), "%zz");
+        // from_str_radix accepts a sign; a percent escape must not.
+        assert_eq!(percent_decode("%+f"), "%+f");
+        assert_eq!(percent_decode("a%+fb"), "a%+fb");
+    }
+
+    #[test]
+    fn a_long_chunk_of_headings_imports_quickly() {
+        let md = "# T\n".to_string() + &"## Step 1. x\n".repeat(20000);
+        let rec = from_markdown(&md);
+        assert_eq!(rec.blocks.len(), 20000);
     }
 }

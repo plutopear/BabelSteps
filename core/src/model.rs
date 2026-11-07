@@ -2,16 +2,30 @@
 //! editing changes it, and exporters render it (see docs/03-architecture.md §4).
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 pub const FORMAT_VERSION: u32 = 2;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Recording {
     pub format_version: u32,
     pub id: String,
     pub title: String,
     pub created_unix_ms: u64,
     pub blocks: Vec<Block>,
+}
+
+// Debug on the document types prints ids, kinds and counts only. Titles, typed
+// text, element names and captions are what a user typed or saw, and `{:?}`
+// ends up in logs and panic messages.
+impl fmt::Debug for Recording {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Recording")
+            .field("format_version", &self.format_version)
+            .field("id", &self.id)
+            .field("blocks", &self.blocks.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Recording {
@@ -35,7 +49,7 @@ impl Recording {
 /// text and image captions hold a restricted inline Markdown string: bold `**`,
 /// italic `*`, underline `<u>..</u>`, inline code, and line breaks (a newline character).
 /// Step titles and heading text are plain strings with no formatting.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Block {
     /// Heading text is plain (no inline formatting).
@@ -50,6 +64,25 @@ pub enum Block {
     Image { id: String, image: String, caption: String },
     /// A highlighted note; `text` is restricted inline Markdown.
     Callout { id: String, kind: CalloutKind, text: String },
+}
+
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Block::Heading { id, level, .. } => {
+                f.debug_struct("Heading").field("id", id).field("level", level).finish_non_exhaustive()
+            }
+            Block::Text { id, .. } => f.debug_struct("Text").field("id", id).finish_non_exhaustive(),
+            Block::Step(s) => fmt::Debug::fmt(s, f),
+            Block::List { id, ordered, items } => {
+                f.debug_struct("List").field("id", id).field("ordered", ordered).field("items", &items.len()).finish()
+            }
+            Block::Image { id, .. } => f.debug_struct("Image").field("id", id).finish_non_exhaustive(),
+            Block::Callout { id, kind, .. } => {
+                f.debug_struct("Callout").field("id", id).field("kind", kind).finish_non_exhaustive()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,7 +103,7 @@ impl CalloutKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StepBlock {
     pub id: String,
     pub action: Action,
@@ -87,7 +120,20 @@ pub struct StepBlock {
     pub screenshot_withheld: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for StepBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StepBlock")
+            .field("id", &self.id)
+            .field("action", &self.action)
+            .field("has_screenshot", &self.screenshot.is_some())
+            .field("has_target", &self.target.is_some())
+            .field("redactions", &self.redactions.len())
+            .field("screenshot_withheld", &self.screenshot_withheld)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Action {
     Click { button: MouseButton, x: i32, y: i32 },
@@ -95,6 +141,18 @@ pub enum Action {
     Shortcut { keys: String },
     Comment,
     Manual,
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Action::Click { .. } => "Action::Click",
+            Action::Text { .. } => "Action::Text",
+            Action::Shortcut { .. } => "Action::Shortcut",
+            Action::Comment => "Action::Comment",
+            Action::Manual => "Action::Manual",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,7 +174,7 @@ impl MouseButton {
 }
 
 /// The UI element a step acted on, as reported by the platform accessibility API.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Target {
     pub name: String,
     pub control_type: String,
@@ -126,6 +184,16 @@ pub struct Target {
     pub process_name: String,
     pub is_password: bool,
     pub bounds: Option<Rect>,
+}
+
+/// Names, titles and process names are not printed; see the note on `Recording`.
+impl fmt::Debug for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Target")
+            .field("is_password", &self.is_password)
+            .field("has_bounds", &self.bounds.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,5 +240,61 @@ fn app_name(process_name: &str) -> String {
         p[..n - 4].trim_end().to_string()
     } else {
         p.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_never_shows_content() {
+        const M: &str = "MARKER-hunter2";
+        let m = |field: &str| format!("{M}-{field}");
+        let target = Target {
+            name: m("name"),
+            control_type: m("control"),
+            window_title: Some(m("window")),
+            process_name: m("process"),
+            is_password: false,
+            bounds: Some(Rect { x: 1, y: 2, w: 3, h: 4 }),
+        };
+        let step = |action| StepBlock {
+            id: "s1".into(),
+            action,
+            title: m("title"),
+            description: m("description"),
+            screenshot: Some(format!("images/{}.png", m("shot"))),
+            target: Some(target.clone()),
+            redactions: vec![Rect { x: 1, y: 2, w: 3, h: 4 }],
+            captured_unix_ms: 0,
+            screenshot_withheld: false,
+        };
+        let mut rec = Recording::new("rec1", m("rectitle"), 0);
+        rec.blocks = vec![
+            Block::Heading { id: "h".into(), level: 1, text: m("heading") },
+            Block::Text { id: "t".into(), text: m("text") },
+            Block::Step(step(Action::Text { text: m("typed") })),
+            Block::Step(step(Action::Shortcut { keys: m("keys") })),
+            Block::Step(step(Action::Click { button: MouseButton::Left, x: 1, y: 2 })),
+            Block::Step(step(Action::Comment)),
+            Block::Step(step(Action::Manual)),
+            Block::List { id: "l".into(), ordered: true, items: vec![m("item")] },
+            Block::Image { id: "i".into(), image: m("image"), caption: m("caption") },
+            Block::Callout { id: "c".into(), kind: CalloutKind::Tip, text: m("callout") },
+        ];
+        let shown = [
+            format!("{rec:?}"),
+            format!("{:#?}", rec),
+            format!("{:?}", rec.blocks),
+            format!("{:?}", target),
+            format!("{:?}", Action::Text { text: m("typed") }),
+        ];
+        for s in &shown {
+            assert!(!s.contains("MARKER") && !s.contains("hunter2"), "{s}");
+        }
+        // The control: the marker really is in the data.
+        assert!(serde_json::to_string(&rec).unwrap().contains("MARKER-hunter2-heading"));
+        assert!(shown[0].contains("rec1"));
     }
 }
