@@ -19,6 +19,7 @@ use crate::capture::{CaptureStats, Capturer, Grabbed};
 use crate::clock;
 use crate::frame::Frame;
 use crate::hooks::{self, HookHandle, HookStats, RawEvent};
+use crate::hotkeys::Hotkey;
 use crate::keys::KeyTracker;
 use crate::monitors;
 use crate::scan::{self, PasswordMemory, WinState};
@@ -75,20 +76,29 @@ pub struct RecorderConfig {
     /// Steps Recorder ignores its own window. The self-test turns this off,
     /// because its test window lives in the same process.
     pub ignore_own_windows: bool,
+    /// Key combinations never recorded: the app's own hotkeys.
+    pub ignore_keys: Vec<Hotkey>,
 }
 
 impl Default for RecorderConfig {
     fn default() -> Self {
-        RecorderConfig { keystrokes_enabled: false, custom: CustomRules::none(), only_injected: false, ignore_own_windows: true }
+        RecorderConfig {
+            keystrokes_enabled: false,
+            custom: CustomRules::none(),
+            only_injected: false,
+            ignore_own_windows: true,
+            ignore_keys: Vec::new(),
+        }
     }
 }
 
 /// What the capture thread needs to know from the config.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CaptureOpts {
     only_injected: bool,
     keystrokes_enabled: bool,
     ignore_own_windows: bool,
+    ignore_keys: Vec<Hotkey>,
 }
 
 /// Fault injection for the self-test. Inert unless something sets it.
@@ -214,6 +224,7 @@ impl Recorder {
             only_injected: config.only_injected,
             keystrokes_enabled: config.keystrokes_enabled,
             ignore_own_windows: config.ignore_own_windows,
+            ignore_keys: config.ignore_keys.clone(),
         };
         let (cap_tx, cap_rx) = unbounded::<Captured>();
         let analysis = {
@@ -403,7 +414,7 @@ fn capture_loop(
             publish_capture(&status, &capturer, &in_flight, &over_budget);
         }
         if let Some(ev) = held.take() {
-            handle_raw(ev, paused, opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+            handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
             continue;
         }
         let ev = select! {
@@ -415,7 +426,7 @@ fn capture_loop(
                 // Pause is recorded, and a comment lands between the right steps.
                 while let Ok(ev) = raw.try_recv() {
                     if ev.t() <= sent || stop {
-                        handle_raw(ev, paused, opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+                        handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
                     } else {
                         held = Some(ev);
                         break;
@@ -437,7 +448,7 @@ fn capture_loop(
             },
             default(Duration::from_millis(250)) => continue,
         };
-        handle_raw(ev, paused, opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+        handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
     }
     let _ = out.send(Captured::Control(Control::Stop));
 }
@@ -455,7 +466,7 @@ fn publish_capture(status: &Mutex<RecorderStatus>, capturer: &Capturer, in_fligh
 fn handle_raw(
     ev: RawEvent,
     paused: bool,
-    opts: CaptureOpts,
+    opts: &CaptureOpts,
     keys: &mut KeyTracker,
     last_was_text: &mut bool,
     capturer: &mut Capturer,
@@ -481,7 +492,11 @@ fn handle_raw(
                 return;
             }
             let Some((key, mods)) = keys.key_down(vk, scan, extended) else { return };
-            if paused || (opts.ignore_own_windows && foreground_is_own()) {
+            let is_hotkey = opts
+                .ignore_keys
+                .iter()
+                .any(|h| h.vk == vk && h.ctrl == mods.ctrl && h.alt == mods.alt && h.shift == mods.shift && h.win == mods.meta);
+            if is_hotkey || paused || (opts.ignore_own_windows && foreground_is_own()) {
                 return;
             }
             let shortcut = mods.ctrl || mods.alt || mods.meta;

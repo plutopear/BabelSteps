@@ -98,6 +98,7 @@ name = "babelsteps-app"
 version = "0.0.1"
 dependencies = [
  "babelsteps-core",
+ "babelsteps-windows",
  "image",
  "lopdf",
  "serde",

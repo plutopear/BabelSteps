@@ -1,27 +1,86 @@
 <script lang="ts">
   import "./app.css";
-  import { live } from "./lib/announce.svelte";
+  import { api, describeError } from "./lib/api";
+  import { live, say } from "./lib/announce.svelte";
   import Editor from "./lib/Editor.svelte";
   import Library from "./lib/Library.svelte";
+  import RecordingPanel from "./lib/RecordingPanel.svelte";
+  import { rs, startPolling, statusLabel } from "./lib/recording.svelte";
   import type { OpenedRecording } from "./lib/types";
 
   let opened = $state<OpenedRecording | null>(null);
+  // Changes on every load, so the editor starts fresh from the saved document.
+  let loadKey = $state(0);
+  let focusId = $state<string | null>(null);
+  let notice = $state("");
+
+  const st = $derived(rs.status);
+
+  $effect(() => startPolling());
+
+  let wasActive = false;
+  let beforeIds: string[] = [];
+  let lastPath: string | null = null;
+
+  function show(o: OpenedRecording) {
+    const before = new Set(beforeIds);
+    focusId = o.recording.blocks.find((b) => b.type === "step" && !before.has(b.id))?.id
+      ?? o.recording.blocks.find((b) => !before.has(b.id))?.id ?? null;
+    opened = o;
+    loadKey++;
+    notice = "";
+  }
+
+  // Follow the recorder, whoever started or stopped it (buttons, hotkeys, tray).
+  $effect(() => {
+    const active = st.active;
+    const path = st.path;
+    if (active && !wasActive) {
+      beforeIds = opened ? [...rs.knownIds] : [];
+    }
+    if (active && path) lastPath = path;
+    if (!active && wasActive && !rs.stopping && lastPath) {
+      // Stopped from a hotkey or the tray: load the saved result.
+      const p = lastPath;
+      api.open(p).then(show, (e) => {
+        notice = describeError(e, "opening the finished recording") + " Open it from the library.";
+        opened = null;
+      });
+      say("Recording stopped and saved.");
+    }
+    wasActive = active;
+  });
+
+  function stopped(o: OpenedRecording) {
+    rs.status = { ...rs.status, active: false, paused: false };
+    show(o);
+    say("Recording saved. Showing the new steps.");
+  }
+
+  function back() {
+    opened = null;
+    rs.knownIds = [];
+  }
 </script>
 
 <a class="skip" href="#main">Skip to content</a>
 <header class="topbar">
   <span class="brand">BabelSteps</span>
-  <!-- Capture is not part of this screen yet, so state plainly that nothing is recording. -->
-  <span class="rec-state">Not recording · Keystroke capture is off</span>
+  <span class="rec-state" class:on={st.active}>
+    {#if st.active}<span class="dot" class:paused={st.paused} aria-hidden="true"></span>{/if}{statusLabel(st)}
+  </span>
 </header>
 
 <main id="main" tabindex="-1">
-  {#if opened}
-    {#key opened.path}
-      <Editor initial={opened.recording} onback={() => (opened = null)} />
+  {#if notice}<p class="error" role="alert">{notice}</p>{/if}
+  {#if st.active}
+    <RecordingPanel onstopped={stopped} />
+  {:else if opened}
+    {#key loadKey}
+      <Editor initial={opened.recording} {focusId} onback={back} />
     {/key}
   {:else}
-    <Library onopen={(o) => (opened = o)} />
+    <Library onopen={(o) => { beforeIds = []; opened = o; loadKey++; focusId = null; }} />
   {/if}
 </main>
 

@@ -5,15 +5,17 @@
 mod commands;
 mod error;
 mod pdf;
+mod recording;
 #[cfg(feature = "selftest")]
 mod selftest;
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::AppState::default())
+        .manage(recording::RecState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_default_library_folder,
             commands::list_library,
@@ -26,7 +28,22 @@ pub fn run() {
             commands::read_screenshot,
             commands::export_markdown,
             commands::export_pdf,
+            recording::recording_status,
+            recording::set_editor_unsaved,
+            recording::start_recording,
+            recording::pause_recording,
+            recording::resume_recording,
+            recording::add_comment,
+            recording::stop_recording,
         ])
+        .on_window_event(|window, event| {
+            // Closing the window while recording stops and saves first.
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    recording::stop_if_recording(window.app_handle());
+                }
+            }
+        })
         .setup(|app| {
             // Redacted copies left by an export that was killed or timed out.
             pdf::sweep_stale_temp();
@@ -54,12 +71,18 @@ pub fn run() {
             });
             #[cfg(not(windows))]
             let _ = main;
+            recording::setup_hotkeys(app.handle());
+            recording::setup_tray(app.handle())?;
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("failed to build the app");
 
-    app.run(|_handle, event| {
+    app.run(|handle, event| {
+        // Quitting while recording stops and saves first.
+        if let tauri::RunEvent::ExitRequested { .. } = &event {
+            recording::stop_if_recording(handle);
+        }
         // The headless self-test has no windows; do not exit when the print
         // window closes.
         #[cfg(feature = "selftest")]

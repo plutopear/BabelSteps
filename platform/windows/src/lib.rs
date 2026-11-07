@@ -19,6 +19,7 @@ mod capture;
 mod clock;
 mod frame;
 mod hooks;
+pub mod hotkeys;
 mod keys;
 mod monitors;
 mod pipeline;

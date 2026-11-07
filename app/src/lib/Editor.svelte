@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api, describeError } from "./api";
   import { say } from "./announce.svelte";
+  import { rs, refreshStatus } from "./recording.svelte";
   import ExportDialog from "./ExportDialog.svelte";
   import Modal from "./Modal.svelte";
   import StepShot from "./StepShot.svelte";
   import type { Block, CalloutKind, Recording } from "./types";
 
-  let { initial, onback }: { initial: Recording; onback: () => void } = $props();
+  let { initial, onback, focusId = null }: { initial: Recording; onback: () => void; focusId?: string | null } = $props();
 
   // svelte-ignore state_referenced_locally
   let rec = $state<Recording>(structuredClone($state.snapshot(initial)) as Recording);
@@ -150,9 +151,86 @@
     }
   }
 
+  // Keep the recorder's "before" list current.
+  $effect(() => {
+    rs.knownIds = rec.blocks.map((b) => b.id);
+  });
+
+  // Autosave 1.5 s after the last change. Never while recording (the backend
+  // refuses), and never with a blank title (save would put the old title back).
+  $effect(() => {
+    const cur = JSON.stringify(rec);
+    if (cur === savedJson || saving || rs.status.active || !rec.title.trim()) return;
+    const t = setTimeout(() => {
+      if (!saving && !rs.status.active) save();
+    }, 1500);
+    return () => clearTimeout(t);
+  });
+
+  onMount(() => {
+    if (focusId) {
+      activeId = focusId;
+      tick().then(() => {
+        const el = root?.querySelector<HTMLElement>(`[data-block="${focusId}"]`);
+        el?.scrollIntoView({ block: "start" });
+        el?.querySelector<HTMLElement>("[data-first]")?.focus();
+      });
+    }
+  });
+
+  // ---- recording ----
+  let showRecord = $state(false);
+  let keystrokes = $state(false);
+  let starting = $state(false);
+  let startError = $state("");
+
+  async function startRecording() {
+    starting = true;
+    startError = "";
+    try {
+      if (dirty && !(await save())) {
+        startError = "Your changes could not be saved, so recording did not start. " + error;
+        return;
+      }
+      const s = await api.startRecording(keystrokes);
+      rs.status = s;
+      showRecord = false;
+      say("Recording started.");
+    } catch (e) {
+      startError = describeError(e, "starting the recording");
+      refreshStatus();
+    } finally {
+      starting = false;
+    }
+  }
+
+  // Tell the backend whether edits are unsaved, so the start hotkey asks us to
+  // save first instead of starting from the older saved copy.
+  $effect(() => {
+    const unsaved = dirty;
+    api.setEditorUnsaved(unsaved).catch(() => console.error("error kind: unsaved flag"));
+  });
+  $effect(() => () => {
+    api.setEditorUnsaved(false).catch(() => {});
+  });
+  // svelte-ignore state_referenced_locally
+  let seenStartRequests = rs.status.startRequests;
+  $effect(() => {
+    const n = rs.status.startRequests;
+    if (n > seenStartRequests && !rs.status.active && !starting) {
+      seenStartRequests = n;
+      keystrokes = false; // As a hotkey start always is.
+      startRecording();
+    }
+  });
+
   $effect(() => {
     const h = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
+      if (rs.status.active) return;
+      if (dirty) {
+        save(); // best effort; the window may close first
+        e.preventDefault();
+      }
     };
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
@@ -171,6 +249,7 @@
     <span class="status" role="status">{saving ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}</span>
     <button type="button" class="primary" onclick={save} disabled={saving || !dirty}>Save</button>
     <button type="button" onclick={() => (showExport = true)}>Export…</button>
+    <button type="button" class="primary" onclick={() => { startError = ""; showRecord = true; }}>Record steps</button>
   </div>
 
   {#if error}
@@ -301,6 +380,27 @@
           if (await save()) back(true);
         }}
       >Save and leave</button>
+    </div>
+  </Modal>
+{/if}
+
+{#if showRecord}
+  <Modal title="Record steps" onclose={() => { if (!starting) showRecord = false; }}>
+    <p>Recording adds new steps to this document. Your changes are saved first.</p>
+    <label class="check">
+      <input type="checkbox" bind:checked={keystrokes} />
+      Record keystrokes
+    </label>
+    <p class="hint">
+      When on, text you type is saved in the steps. Detected password fields are not recorded.
+      Either way, anything visible on screen appears in screenshots.
+    </p>
+    {#if startError}<p class="error" role="alert">{startError}</p>{/if}
+    <div class="actions">
+      <button type="button" onclick={() => (showRecord = false)} disabled={starting}>Cancel</button>
+      <button type="button" class="primary" onclick={startRecording} disabled={starting}>
+        {starting ? "Starting…" : "Start recording"}
+      </button>
     </div>
   </Modal>
 {/if}

@@ -75,9 +75,78 @@ function summary(rec: Recording): ExportSummary {
   };
 }
 
+// Simulated recorder: one step every ~2 s while active and not paused.
+const R = { active: false, paused: false, keystrokes: false, path: null as string | null, steps: 0, notes: 0, noteRequests: 0, last: 0 };
+function recStatus() {
+  const now = Date.now();
+  if (R.active && !R.paused && now - R.last >= 2000) {
+    const n = Math.floor((now - R.last) / 2000);
+    R.steps += n;
+    R.last += n * 2000;
+  }
+  return {
+    active: R.active, paused: R.active && R.paused, keystrokes: R.active && R.keystrokes, path: R.path,
+    steps: R.steps, withheld: R.active && R.steps >= 3 ? 1 : 0,
+    warnings: R.active && R.steps >= 3 ? ["Sample warning: a slow check delayed one step."] : [],
+    noteRequests: R.noteRequests,
+    startRequests: 0,
+    hotkeys: [
+      { action: "Start or stop recording", keys: "Ctrl+Alt+Shift+R", registered: true },
+      { action: "Pause or resume", keys: "Ctrl+Alt+Shift+P", registered: true },
+      { action: "Add a note", keys: "Ctrl+Alt+Shift+N", registered: false },
+      { action: "Stop now", keys: "Ctrl+Alt+Shift+X", registered: true },
+    ],
+  };
+}
+// Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
+(globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
+function busy(): never {
+  throw { kind: "busy", message: "" };
+}
+
 export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promise<unknown> {
   await wait(60);
+  if (R.active && ["save_recording", "open_recording", "create_recording", "close_recording",
+    "rename_recording", "delete_recording", "export_markdown", "export_pdf"].includes(cmd)) busy();
   switch (cmd) {
+    case "recording_status":
+      return recStatus();
+    case "set_editor_unsaved":
+      return null;
+    case "start_recording": {
+      if (R.active) busy();
+      if (!open) {
+        open = `${FOLDER}\\recording-${++seq}.bsrec`;
+        store.set(open, { format_version: 2, id: `r${seq}`, title: "Recording", created_unix_ms: Date.now(), blocks: [] });
+      }
+      Object.assign(R, { active: true, paused: false, keystrokes: Boolean(a.keystrokes), path: open, steps: 0, notes: 0, last: Date.now() });
+      return recStatus();
+    }
+    case "pause_recording":
+      recStatus();
+      R.paused = true;
+      return;
+    case "resume_recording":
+      R.paused = false;
+      R.last = Date.now();
+      return;
+    case "add_comment": {
+      const t = String(a.text).trim();
+      if (!t || t.length > 2000) throw { kind: "invalid_argument", message: "" };
+      R.notes++;
+      return;
+    }
+    case "stop_recording": {
+      recStatus();
+      if (!R.active) throw { kind: "invalid_argument", message: "" };
+      await wait(1500);
+      const rec = store.get(R.path!)!;
+      for (let i = 0; i < R.steps; i++) rec.blocks.push(step(i + 1, `Left-click sample item ${i + 1}`));
+      const path = R.path!;
+      R.active = false;
+      open = path;
+      return { path, recording: structuredClone(rec) };
+    }
     case "get_default_library_folder":
       return FOLDER;
     case "list_library":

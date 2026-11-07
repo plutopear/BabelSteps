@@ -96,3 +96,22 @@ export interface AppError {
   kind: ErrorKind;
   message: string;
 }
+
+export interface HotkeyInfo {
+  action: string;
+  keys: string;
+  registered: boolean;
+}
+
+export interface RecordingStatus {
+  active: boolean;
+  paused: boolean;
+  keystrokes: boolean;
+  path: string | null;
+  steps: number;
+  withheld: number;
+  warnings: string[];
+  noteRequests: number;
+  startRequests: number;
+  hotkeys: HotkeyInfo[];
+}

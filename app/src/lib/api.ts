@@ -6,6 +6,7 @@ import type {
   LibraryListing,
   OpenedRecording,
   Recording,
+  RecordingStatus,
 } from "./types";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -48,7 +49,7 @@ export function describeError(e: unknown, doing: string): string {
     case "output_not_empty":
       return "That folder already contains an export. Nothing was changed. Choose an empty folder and try again.";
     case "busy":
-      return "Another export is still running. Wait for it to finish, then try again.";
+      return "BabelSteps is busy with a recording or an export. Stop the recording or wait for the export to finish, then try again.";
     case "too_new":
       return "This recording was made by a newer version of BabelSteps. Update BabelSteps to open it.";
     case "not_found":
@@ -82,6 +83,13 @@ export const api = {
   exportMarkdown: (outDir: string) => call<ExportSummary>("export_markdown", { outDir }),
   exportPdf: (outPath: string, headerFooter: boolean) =>
     call<ExportSummary>("export_pdf", { outPath, headerFooter }),
+  recordingStatus: () => call<RecordingStatus>("recording_status"),
+  setEditorUnsaved: (unsaved: boolean) => call<void>("set_editor_unsaved", { unsaved }),
+  startRecording: (keystrokes: boolean) => call<RecordingStatus>("start_recording", { keystrokes }),
+  pauseRecording: () => call<void>("pause_recording"),
+  resumeRecording: () => call<void>("resume_recording"),
+  addComment: (text: string) => call<void>("add_comment", { text }),
+  stopRecording: () => call<OpenedRecording>("stop_recording"),
 };
 
 // File pickers go through the dialog plugin's commands (already allowed:

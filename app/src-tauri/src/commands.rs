@@ -13,6 +13,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::recording::{ensure_idle, RecState};
 use tauri::{AppHandle, Manager, State};
 
 #[derive(Default)]
@@ -75,17 +76,17 @@ pub struct OpenedRecording {
     pub recording: Recording,
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     format!("{nanos:x}-{:x}-{:x}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
-fn default_library(app: &AppHandle) -> AppResult<PathBuf> {
+pub(crate) fn default_library(app: &AppHandle) -> AppResult<PathBuf> {
     let base = app
         .path()
         .local_data_dir()
@@ -105,7 +106,7 @@ fn no_recording() -> AppError {
     AppError::new(ErrorKind::NoRecordingOpen, "no recording is open")
 }
 
-fn lock_current(state: &AppState) -> std::sync::MutexGuard<'_, Option<Bundle>> {
+pub(crate) fn lock_current(state: &AppState) -> std::sync::MutexGuard<'_, Option<Bundle>> {
     // A panic elsewhere must not lock the user out of their recording.
     state.current.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -157,9 +158,11 @@ pub fn list_library(app: AppHandle, folder: Option<String>) -> AppResult<Library
 pub fn create_recording(
     app: AppHandle,
     state: State<'_, AppState>,
+    rec: State<'_, RecState>,
     folder: Option<String>,
     title: String,
 ) -> AppResult<OpenedRecording> {
+    ensure_idle(&rec)?;
     let title = title.trim().to_string();
     if title.is_empty() {
         return Err(AppError::new(ErrorKind::InvalidArgument, "the title is empty"));
@@ -177,7 +180,8 @@ pub fn create_recording(
 
 /// Open a recording folder, load it, and make it the open one.
 #[tauri::command]
-pub fn open_recording(state: State<'_, AppState>, path: String) -> AppResult<OpenedRecording> {
+pub fn open_recording(state: State<'_, AppState>, rec: State<'_, RecState>, path: String) -> AppResult<OpenedRecording> {
+    ensure_idle(&rec)?;
     let p = require_absolute(&path, "the recording path")?;
     let bundle = Bundle::open(&p)?;
     let recording = bundle.load()?;
@@ -187,13 +191,17 @@ pub fn open_recording(state: State<'_, AppState>, path: String) -> AppResult<Ope
 }
 
 #[tauri::command]
-pub fn close_recording(state: State<'_, AppState>) {
+pub fn close_recording(state: State<'_, AppState>, rec: State<'_, RecState>) {
+    if ensure_idle(&rec).is_err() {
+        return;
+    }
     *lock_current(&state) = None;
 }
 
 /// Save the whole document to the open recording.
 #[tauri::command]
-pub fn save_recording(state: State<'_, AppState>, recording: Recording) -> AppResult<()> {
+pub fn save_recording(state: State<'_, AppState>, rec: State<'_, RecState>, recording: Recording) -> AppResult<()> {
+    ensure_idle(&rec)?;
     let guard = lock_current(&state);
     let bundle = guard.as_ref().ok_or_else(no_recording)?;
     bundle.save(&recording)?;
@@ -202,7 +210,8 @@ pub fn save_recording(state: State<'_, AppState>, recording: Recording) -> AppRe
 
 /// Change the title of the open recording (the folder keeps its name).
 #[tauri::command]
-pub fn rename_recording(state: State<'_, AppState>, title: String) -> AppResult<()> {
+pub fn rename_recording(state: State<'_, AppState>, rec: State<'_, RecState>, title: String) -> AppResult<()> {
+    ensure_idle(&rec)?;
     let title = title.trim();
     if title.is_empty() {
         return Err(AppError::new(ErrorKind::InvalidArgument, "the title is empty"));
@@ -217,7 +226,8 @@ pub fn rename_recording(state: State<'_, AppState>, title: String) -> AppResult<
 /// `.bsrec` folder containing `recording.db`. If it is the open one, it is
 /// closed first so the database file is released.
 #[tauri::command]
-pub fn delete_recording(state: State<'_, AppState>, path: String) -> AppResult<()> {
+pub fn delete_recording(state: State<'_, AppState>, rec: State<'_, RecState>, path: String) -> AppResult<()> {
+    ensure_idle(&rec)?;
     let p = require_absolute(&path, "the recording path")?;
     {
         let mut guard = lock_current(&state);
@@ -286,6 +296,7 @@ fn outside_bundle(bundle: &Bundle, target: &Path) -> AppResult<()> {
 #[tauri::command]
 pub async fn export_markdown(app: AppHandle, out_dir: String) -> AppResult<ExportSummary> {
     let out = require_absolute(&out_dir, "the export folder")?;
+    ensure_idle(&app.state::<RecState>())?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let _busy = state
@@ -311,6 +322,7 @@ pub async fn export_pdf(app: AppHandle, out_path: String, header_footer: bool) -
     if !out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
         return Err(AppError::new(ErrorKind::InvalidArgument, "the file name must end in .pdf"));
     }
+    ensure_idle(&app.state::<RecState>())?;
     tauri::async_runtime::spawn_blocking(move || run_pdf_export(&app, &out, header_footer))
         .await
         .map_err(|e| AppError::new(ErrorKind::Pdf, format!("export task failed: {e}")))?
