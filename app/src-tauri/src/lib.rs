@@ -28,6 +28,9 @@ pub fn run() {
             commands::export_pdf,
         ])
         .setup(|app| {
+            // Redacted copies left by an export that was killed or timed out.
+            pdf::sweep_stale_temp();
+
             #[cfg(feature = "selftest")]
             if let Some(dir) = selftest::requested_dir() {
                 // Headless: no main window is ever created.
