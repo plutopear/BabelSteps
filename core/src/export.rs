@@ -7,7 +7,7 @@
 //! half-finished folder behind (apart from an empty output folder).
 
 use crate::html::to_html;
-use crate::image_export::prepare_image;
+use crate::image_export::{prepare_image, PRINT_MAX_WIDTH};
 use crate::markdown::to_markdown;
 use crate::model::{Block, Recording, Rect};
 use crate::storage::is_reserved_device_name;
@@ -108,10 +108,10 @@ struct Prepared {
     report: ExportReport,
 }
 
-fn prepare_all(rec: &Recording, source_dir: &Path) -> Result<Prepared, ExportError> {
+fn prepare_all(rec: &Recording, source_dir: &Path, max_width: Option<u32>) -> Result<Prepared, ExportError> {
     let root = std::fs::canonicalize(source_dir).map_err(|e| ExportError::Io(format!("recording folder: {e}")))?;
     let mut report = ExportReport::default();
-    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut jobs: Vec<Job> = Vec::new();
     // Keyed on the lowercased path: the output folder may be case-insensitive.
     let mut seen: HashMap<String, (String, Vec<Rect>)> = HashMap::new();
 
@@ -156,21 +156,73 @@ fn prepare_all(rec: &Recording, source_dir: &Path) -> Result<Prepared, ExportErr
         if !full.starts_with(&root) {
             return Err(ExportError::UnsafePath { owner, path: path.to_string() });
         }
-        let bytes = std::fs::read(&full).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound { missing() } else { ExportError::Io(format!("{owner}: {e}")) }
-        })?;
-        let prepared = prepare_image(&bytes, redactions).map_err(|e| match e {
-            ExportError::Image(m) => ExportError::Image(format!("{owner}: {m}")),
-            other => other,
-        })?;
-        report.images_written += 1;
         if !redactions.is_empty() {
             report.images_with_redactions += 1;
         }
         seen.insert(path.to_lowercase(), (path.to_string(), redactions.to_vec()));
-        files.push((path.to_string(), prepared));
+        jobs.push(Job { owner, path: path.to_string(), full, redactions: redactions.to_vec() });
     }
+
+    let mut files = Vec::with_capacity(jobs.len());
+    for (job, prepared) in jobs.iter().zip(prepare_parallel(&jobs, max_width)) {
+        files.push((job.path.clone(), prepared?));
+    }
+    report.images_written = files.len();
     Ok(Prepared { files, report })
+}
+
+/// An image that passed every path check, waiting to be read and prepared.
+struct Job {
+    owner: String,
+    path: String,
+    full: PathBuf,
+    redactions: Vec<Rect>,
+}
+
+fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
+    let owner = &job.owner;
+    let bytes = std::fs::read(&job.full).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ExportError::MissingImage { owner: owner.clone(), path: job.path.clone() }
+        } else {
+            ExportError::Io(format!("{owner}: {e}"))
+        }
+    })?;
+    prepare_image(&bytes, &job.redactions, max_width).map_err(|e| match e {
+        ExportError::Image(m) => ExportError::Image(format!("{owner}: {m}")),
+        other => other,
+    })
+}
+
+/// Decoding, painting and encoding take about 0.1 s per ultrawide screenshot,
+/// so images are prepared on a few threads. Capped at 8: each one holds a
+/// decoded full-size image (about 30 MB at 5120x1440). Results keep job order,
+/// so the first error reported is the first in the document.
+fn prepare_parallel(jobs: &[Job], max_width: Option<u32>) -> Vec<Result<Vec<u8>, ExportError>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8).min(jobs.len());
+    if threads <= 1 {
+        return jobs.iter().map(|j| prepare_one(j, max_width)).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<Result<Vec<u8>, ExportError>>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(job) = jobs.get(i) else { break };
+                let r = prepare_one(job, max_width);
+                results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner())
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|| Err(ExportError::Image("image was not prepared".into()))))
+        .collect()
 }
 
 /// Refuses a folder that holds an earlier export, so stale files can never mix
@@ -201,16 +253,17 @@ fn write_bundle(out_dir: &Path, doc_name: &str, doc: &str, files: &[(String, Vec
 /// Write `document.md` and `images/` into `out_dir`.
 pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
-    let p = prepare_all(rec, source_dir)?;
+    let p = prepare_all(rec, source_dir, None)?;
     write_bundle(out_dir, "document.md", &to_markdown(rec), &p.files)?;
     Ok(p.report)
 }
 
 /// Write `document.html` and `images/` into `out_dir`, ready for a webview to
-/// print (PDF) or to keep as an HTML export.
+/// print (PDF) or to keep as an HTML export. Images wider than
+/// [`PRINT_MAX_WIDTH`] are scaled down; Markdown exports keep full size.
 pub fn prepare_html_export(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
-    let p = prepare_all(rec, source_dir)?;
+    let p = prepare_all(rec, source_dir, Some(PRINT_MAX_WIDTH))?;
     write_bundle(out_dir, "document.html", &to_html(rec), &p.files)?;
     Ok(p.report)
 }
@@ -277,6 +330,43 @@ mod tests {
         let r = export_markdown(&rec, src.path(), out.path());
         assert!(matches!(r, Err(ExportError::CaseCollision { .. })), "{r:?}");
         assert!(!out.path().join("images").exists());
+    }
+
+    #[test]
+    fn the_first_broken_image_in_the_document_is_the_one_reported() {
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        let rec = generate_bundle(src.path(), 30, 8, 8);
+        let shots: Vec<String> = rec
+            .blocks
+            .iter()
+            .filter_map(|b| if let Block::Step(s) = b { s.screenshot.clone() } else { None })
+            .collect();
+        // Break steps 7 and 25; images are prepared on several threads.
+        for i in [6, 24] {
+            std::fs::write(src.path().join(&shots[i]), b"not a png").unwrap();
+        }
+        for _ in 0..5 {
+            match prepare_html_export(&rec, src.path(), out.path()) {
+                Err(ExportError::Image(m)) => assert!(m.starts_with("step 7:"), "{m}"),
+                other => panic!("expected an image error, got {other:?}"),
+            }
+        }
+        assert!(!out.path().join("images").exists());
+    }
+
+    #[test]
+    fn wide_images_shrink_for_html_but_not_markdown() {
+        let src = TempDir::new("src");
+        let rec = generate_bundle(src.path(), 1, PRINT_MAX_WIDTH + 400, 10);
+        let Block::Step(s) = &rec.blocks[0] else { panic!("expected a step") };
+        let shot = s.screenshot.clone().unwrap();
+        let width = |dir: &Path| image::image_dimensions(dir.join(&shot)).unwrap().0;
+        let (md, html) = (TempDir::new("md"), TempDir::new("html"));
+        export_markdown(&rec, src.path(), md.path()).unwrap();
+        prepare_html_export(&rec, src.path(), html.path()).unwrap();
+        assert_eq!(width(md.path()), PRINT_MAX_WIDTH + 400);
+        assert_eq!(width(html.path()), PRINT_MAX_WIDTH);
     }
 
     #[test]

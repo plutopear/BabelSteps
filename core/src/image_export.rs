@@ -3,13 +3,21 @@
 //! length readable), and is re-encoded from raw pixels. Re-encoding drops all
 //! metadata (EXIF, text chunks, colour profiles), so the output holds only
 //! IHDR, IDAT and IEND chunks.
+//!
+//! With `max_width`, wider images are scaled down after the boxes are painted,
+//! so scaling only ever blends black into the edges, never hidden pixels.
 
 use crate::export::ExportError;
 use crate::model::Rect;
 use image::codecs::png::PngEncoder;
+use image::imageops::{resize, FilterType};
 use image::{ImageEncoder, ImageFormat};
 
-pub fn prepare_image(src_png: &[u8], redactions: &[Rect]) -> Result<Vec<u8>, ExportError> {
+/// Width for printed (HTML and PDF) images. Letter pages print about 7.5 inches
+/// wide, so this is over 250 dpi; full-size ultrawide shots made printing slow.
+pub const PRINT_MAX_WIDTH: u32 = 2000;
+
+pub fn prepare_image(src_png: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
     let decoded = image::load_from_memory_with_format(src_png, ImageFormat::Png)
         .map_err(|e| ExportError::Image(e.to_string()))?;
     let mut img = decoded.to_rgba8();
@@ -31,6 +39,12 @@ pub fn prepare_image(src_png: &[u8], redactions: &[Rect]) -> Result<Vec<u8>, Exp
         }
     }
 
+    if let Some(max) = max_width.filter(|&m| m > 0 && width > m) {
+        let h = ((u64::from(height) * u64::from(max) + u64::from(width) / 2) / u64::from(width)).max(1) as u32;
+        img = resize(&img, max, h, FilterType::CatmullRom);
+    }
+    let (width, height) = img.dimensions();
+
     let mut out = Vec::new();
     PngEncoder::new(&mut out)
         .write_image(img.as_raw(), width, height, image::ExtendedColorType::Rgba8)
@@ -50,7 +64,7 @@ pub(crate) mod tests {
     #[test]
     fn paints_black_inside_and_leaves_outside_alone() {
         let src = solid_png(20, 10, [200, 100, 50, 255]);
-        let out = decode(&prepare_image(&src, &[Rect { x: 5, y: 2, w: 4, h: 3 }]).unwrap());
+        let out = decode(&prepare_image(&src, &[Rect { x: 5, y: 2, w: 4, h: 3 }], None).unwrap());
         for y in 0..10 {
             for x in 0..20 {
                 let inside = (5..9).contains(&x) && (2..5).contains(&y);
@@ -72,7 +86,7 @@ pub(crate) mod tests {
             Rect { x: 0, y: 0, w: 0, h: 0 },
             Rect { x: 100, y: 100, w: 5, h: 5 },
         ];
-        let out = decode(&prepare_image(&src, &rects).unwrap());
+        let out = decode(&prepare_image(&src, &rects, None).unwrap());
         // (-5,-5,8,8) covers 0..3; negative width is ignored.
         assert_eq!(out.get_pixel(2, 2).0, [0, 0, 0, 255]);
         assert_eq!(out.get_pixel(9, 9).0, [0, 0, 0, 255]);
@@ -86,7 +100,7 @@ pub(crate) mod tests {
         for want in ["tEXt", "iTXt", "eXIf"] {
             assert!(src_names.iter().any(|n| n == want), "test input must contain {want}");
         }
-        let out = prepare_image(&src, &[]).unwrap();
+        let out = prepare_image(&src, &[], None).unwrap();
         for (name, data) in png_chunks(&out) {
             assert!(["IHDR", "IDAT", "IEND", "PLTE"].contains(&name.as_str()), "unexpected chunk {name}");
             assert!(!String::from_utf8_lossy(&data).contains("SECRET-META"));
@@ -95,7 +109,42 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn wide_images_shrink_to_max_width_keeping_aspect() {
+        let out = decode(&prepare_image(&solid_png(500, 141, [7, 7, 7, 255]), &[], Some(100)).unwrap());
+        assert_eq!(out.dimensions(), (100, 28));
+        let out = decode(&prepare_image(&solid_png(80, 30, [7, 7, 7, 255]), &[], Some(100)).unwrap());
+        assert_eq!(out.dimensions(), (80, 30), "narrow images are never enlarged");
+    }
+
+    #[test]
+    fn scaling_never_blends_redacted_pixels_into_the_output() {
+        // White page with a red "secret" block that is redacted exactly. Every
+        // output pixel must be grey (black blended with white), never reddish.
+        let mut src = image::RgbaImage::from_pixel(400, 100, image::Rgba([255, 255, 255, 255]));
+        for y in 30..60 {
+            for x in 101..203 {
+                src.put_pixel(x, y, image::Rgba([255, 0, 0, 255]));
+            }
+        }
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png).write_image(src.as_raw(), 400, 100, image::ExtendedColorType::Rgba8).unwrap();
+        let redact = [Rect { x: 101, y: 30, w: 102, h: 30 }];
+        let out = decode(&prepare_image(&png, &redact, Some(150)).unwrap());
+        assert_eq!(out.width(), 150);
+        let mut saw_black = false;
+        for p in out.pixels() {
+            let [r, g, b, _] = p.0;
+            assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1, "coloured pixel {:?}", p.0);
+            saw_black |= r < 10;
+        }
+        assert!(saw_black, "the redaction box must survive scaling");
+        // The check can fail: without the redaction the red shows through.
+        let leaked = decode(&prepare_image(&png, &[], Some(150)).unwrap());
+        assert!(leaked.pixels().any(|p| u16::from(p.0[0]) > u16::from(p.0[1]) + 50));
+    }
+
+    #[test]
     fn rejects_garbage() {
-        assert!(matches!(prepare_image(b"not a png", &[]), Err(ExportError::Image(_))));
+        assert!(matches!(prepare_image(b"not a png", &[], None), Err(ExportError::Image(_))));
     }
 }
