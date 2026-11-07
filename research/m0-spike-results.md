@@ -90,7 +90,7 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 | Elevated windows, UAC prompts | Needs an elevated target and an admin prompt | M1 test, with the owner approving the prompt |
 | Real people using real apps | Synthetic clicks only, apart from a 2-second run that produced 2 steps from real clicks, whose output was deleted unread | `record` mode, tried by the owner |
 | Tauri and WebView2 | Not part of these spikes | First M1 task. D1 (idle memory) depends on it |
-| D3, D4, D5 (startup, installer size, PDF export) | Nothing to measure yet | M1 to M3 |
+| D3, D4 (startup, installer size) | Nothing to measure yet | M1 to M3. D5 was met on one fast PC on 2026-11-06: see `m2-results.md` |
 | Lower-end hardware | One fast desktop only | A laptop test before M3 |
 | Long sessions, screen resolution changes, sleep and lock | Out of scope for spikes | M1 |
 | Other browsers (Chrome, Firefox) | Only Edge was tested | M1. Firefox's accessibility engine is separate from Chromium's |
