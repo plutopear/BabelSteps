@@ -27,3 +27,4 @@ Other docs refer to these by number. Do not re-ask anything under **Decided**.
 | Q14 | Hotkeys | `Ctrl+Alt+Shift+R` start/stop, `P` pause, `N` add note, `X` panic stop. All remappable, with conflict warnings. Two-modifier defaults were rejected because they clash with browsers and Task Manager. |
 | Q15 | Browser extension | Not in v1. |
 | Q16 | Code signing | The owner is in the US and does **not** want to pay for a certificate. Apply to SignPath Foundation (free for open source) before the first public release, with unsigned distribution as the fallback (roadmap M3). Microsoft Artifact Signing (about $120/yr) stays available if they change their mind. |
+| Q18 | Order of work (2026-11-06) | Steps Recorder parity first, Scribe-style features later. M2 is paused where it stands; M1 capture must be solid and tested before M2 resumes. Overrides the 2026-11-02 request to start M2 early. |

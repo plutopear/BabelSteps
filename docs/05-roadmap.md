@@ -21,6 +21,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Goal:** match the Steps Recorder workflow.
 
+**Status (2026-11-06):** the current focus (Q18). The owner wants core capture to be bulletproof before Scribe-style work continues. No capture code ships yet: hooks, screenshots, UI Automation and redaction exist only in the M0 spike. Platform-free pieces already in `core` (fail-closed password check, PII scrubbing, event normalizer) are reused.
+
 - Start, pause, stop, comments, and hotkeys (A1–A6, C2–C3).
 - Multi-monitor and DPI correctness (A7).
 - Recording storage in the folder bundle format (C4).
@@ -39,7 +41,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Status (2026-11-02):** started at the owner's request, before M1 is finished. M2 needs two M1 items, which are pulled forward: the Tauri 2 shell (for the editor and PDF printing) and recording storage (C4). Keystroke capture on a real machine (B1–B4) still waits on M1's capture pipeline, so only its platform-free logic is built first. The rest of M1 remains open.
 
-**Status (2026-11-06):** the Tauri shell and PDF export are merged. D5 is met on one fast PC (about 9 s for 100 ultrawide steps; see `research/m2-results.md`), not yet on lower-end hardware. Next: the editor UI.
+**Status (2026-11-06):** paused at the owner's request until M1 is done (Q18). Done so far: the Tauri shell and PDF export are merged. D5 is met on one fast PC (about 9 s for 100 ultrawide steps; see `research/m2-results.md`), not yet on lower-end hardware. Next: the editor UI.
 
 - Keystroke capture with text grouping, shortcut naming, and password suppression (B1–B4).
 - Document generation after stop (B5).
