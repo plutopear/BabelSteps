@@ -61,3 +61,12 @@ Encryption at rest is **dropped** (not planned). Instead, the app limits how muc
 ## 6. Antivirus and keyboard hooks
 
 Low-level keyboard hooks are the same mechanism some keyloggers use, so antivirus heuristics may flag the app. Mitigations: code signing, documentation of the hook use, submitting builds to vendor false-positive programs, and keeping the hook callback minimal and transparent.
+
+## 7. Native app, no server (decided 2026-11-08)
+
+BabelSteps is one native program. It runs no web server and no client/server pair, and it opens no network connection. The window shows the built-in frontend through Tauri's own `custom-protocol`, which is an in-process handler, not a TCP port.
+
+Guards:
+- `build.rs` in `app/src-tauri` refuses a release build that does not embed the frontend. A plain `cargo build --release` would point the window at the development server (`localhost:1420`) and show "localhost refused to connect". Build the app with `cargo build --release -p babelsteps-app --features custom-protocol` (the executable is then under that target folder's `release`).
+- `.claude/skills/babelsteps-check/scripts/no-network.ps1`, run by the `babelsteps-check` skill, fails if the dependency tree for Windows, macOS or Linux contains hyper, reqwest, mio, socket2, h2, a TLS or HTTP client crate, or a Tauri http, shell, opener, updater or websocket plugin; if tokio has its `net` feature on; if a capability grants more than the folder and save pickers; or if the config opens a remote URL. Checked 2026-11-08: passes (322 crates). Tauri itself pulls in reqwest only for Android and iOS, which we do not build, so those targets are not checked.
+- Not yet checked on a running app: that no BabelSteps process has a listening or outbound socket, and which local pipes WebView2 uses. That needs a live launch and the owner's OK.

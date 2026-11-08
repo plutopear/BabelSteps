@@ -27,6 +27,11 @@ windows = { version = "0.62", features = ["Win32_Foundation"] }
 windows-core = "0.62"
 
 [features]
+# Embed the built frontend. Without it a release build points at the dev server
+# (devUrl, localhost:1420) and shows "localhost refused to connect". build.rs
+# refuses such a release build. Build with:
+#   cargo build --release -p babelsteps-app --features custom-protocol
+custom-protocol = ["tauri/custom-protocol"]
 # `--pdf-selftest <dir>` entry point and the PDF inspection code.
 selftest = ["dep:lopdf", "dep:image", "babelsteps-core/test-support"]
 

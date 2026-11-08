@@ -17,6 +17,10 @@ foreach ($r in $results) { if ($r -match '(\d+) passed') { $passed += [int]$Matc
 $errors | Select-Object -First 30
 $failed | Select-Object -First 30
 "Warnings: $($warnings.Count). Tests passed: $passed. Tests failed: $($failed.Count)."
+$net = powershell -NoProfile -File (Join-Path $PSScriptRoot "no-network.ps1") 2>&1 | ForEach-Object { "$_" }
+$netCode = $LASTEXITCODE
+$net
+if ($netCode -ne 0 -and $code -eq 0) { $code = 1 }
 "Full log: $log"
 if ($code -eq 0) { "RESULT: PASS" } else { "RESULT: FAIL (cargo exit $code)" }
 exit $code
