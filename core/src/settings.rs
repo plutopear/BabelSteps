@@ -2,6 +2,7 @@
 //! JSON file, no platform code. A missing or damaged file gives the defaults;
 //! the app must start whatever is in it.
 
+use crate::pii::CustomRules;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
@@ -10,6 +11,10 @@ use std::path::Path;
 /// Q12: unlimited by default, with a warning above this many megabytes.
 pub const DEFAULT_SIZE_WARNING_MB: u32 = 500;
 pub const MAX_KEEP_SCREENSHOTS: u32 = 100_000;
+/// B14: most custom words, and most custom patterns, the user can keep.
+pub const MAX_CUSTOM_ENTRIES: usize = 100;
+/// B14: longest custom word or pattern, in characters.
+pub const MAX_CUSTOM_CHARS: usize = 200;
 
 /// A global shortcut as the user types it, e.g. `Ctrl+Alt+Shift+R`. Keys: A to Z, 0 to 9, F1 to F12.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +145,11 @@ pub struct Settings {
     /// Off by default, because titles often hold file names, page titles and
     /// customer names (privacy doc section 1); steps name the app instead.
     pub show_window_titles: bool,
+    /// B14: words hidden from typed text, matched whole and ignoring case.
+    /// The user's own text: never log it or put it in an error message.
+    pub custom_words: Vec<String>,
+    /// B14: regular expressions hidden from typed text (advanced). Same care.
+    pub custom_patterns: Vec<String>,
 }
 
 impl Default for Settings {
@@ -151,8 +161,37 @@ impl Default for Settings {
             hotkeys: HotkeySettings::default(),
             close_to_tray: false,
             show_window_titles: false,
+            custom_words: Vec::new(),
+            custom_patterns: Vec::new(),
         }
     }
+}
+
+/// Why one custom word or pattern is refused, or `None` if it is fine. The
+/// entry is the user's own text, so the reason never quotes it.
+fn custom_entry_problem(entry: &str, word: bool) -> Option<String> {
+    if entry.trim().is_empty() {
+        return Some("is empty".into());
+    }
+    if entry.chars().count() > MAX_CUSTOM_CHARS {
+        return Some(format!("is longer than {MAX_CUSTOM_CHARS} characters"));
+    }
+    let built = if word {
+        CustomRules::new([entry], [] as [&str; 0])
+    } else {
+        CustomRules::new([] as [&str; 0], [entry])
+    };
+    built.err().map(|_| "is not valid".into())
+}
+
+/// Drops the entries `validate` would refuse, and any past the cap.
+fn keep_good_entries(list: Vec<String>, word: bool) -> Vec<String> {
+    let mut list: Vec<String> = list
+        .into_iter()
+        .filter(|e| custom_entry_problem(e, word).is_none())
+        .collect();
+    list.truncate(MAX_CUSTOM_ENTRIES);
+    list
 }
 
 impl Settings {
@@ -167,7 +206,28 @@ impl Settings {
             return Err("the size warning must be between 1 MB and 1,000,000 MB".into());
         }
         self.hotkeys.parse()?;
+        for (list, word) in [(&self.custom_words, true), (&self.custom_patterns, false)] {
+            let noun = if word { "word" } else { "pattern" };
+            if list.len() > MAX_CUSTOM_ENTRIES {
+                return Err(format!(
+                    "too many custom {noun}s (at most {MAX_CUSTOM_ENTRIES})"
+                ));
+            }
+            for (i, entry) in list.iter().enumerate() {
+                if let Some(problem) = custom_entry_problem(entry, word) {
+                    return Err(format!("custom {noun} {} {problem}", i + 1));
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// B14: the custom words and patterns, ready to check typed text against.
+    /// Fails on anything `validate` refuses, because a rule that is skipped
+    /// would leave the user believing it protects them.
+    pub fn custom_rules(&self) -> Result<CustomRules, String> {
+        self.validate()?;
+        CustomRules::new(&self.custom_words, &self.custom_patterns).map_err(|e| e.to_string())
     }
 
     /// Read the file. Missing, unreadable or invalid content gives the defaults,
@@ -186,6 +246,10 @@ impl Settings {
             if s.hotkeys.parse().is_err() {
                 s.hotkeys = d.hotkeys;
             }
+            // Keep every custom entry that is still good, so one bad line does
+            // not switch off the rest.
+            s.custom_words = keep_good_entries(s.custom_words, true);
+            s.custom_patterns = keep_good_entries(s.custom_patterns, false);
         }
         s
     }
@@ -235,7 +299,16 @@ mod tests {
     fn round_trips_and_missing_file_gives_defaults() {
         let p = temp("rt");
         assert_eq!(Settings::load(&p), Settings::default());
-        let s = Settings { keep_screenshots: Some(25), size_warning_mb: 200, show_capture_border: false, hotkeys: HotkeySettings::default(), close_to_tray: true, show_window_titles: true };
+        let s = Settings {
+            keep_screenshots: Some(25),
+            size_warning_mb: 200,
+            show_capture_border: false,
+            hotkeys: HotkeySettings::default(),
+            close_to_tray: true,
+            show_window_titles: true,
+            custom_words: vec!["Zebracorp".into()],
+            custom_patterns: vec!["PROJ-[0-9]+".into()],
+        };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p), s);
         assert!(!p.with_extension("json.partial").exists());
@@ -288,6 +361,94 @@ mod tests {
         assert!(e.contains("both use"), "{e}");
         h.pause = "Ctrl+Alt+Shift+Q".into();
         assert!(h.parse().is_ok());
+    }
+
+    // The sentinel stands in for a customer name: no error text may contain it.
+    const SENTINEL: &str = "Qzx7Sentinel";
+
+    fn with_custom(words: Vec<String>, patterns: Vec<String>) -> Settings {
+        Settings {
+            custom_words: words,
+            custom_patterns: patterns,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn files_from_before_custom_rules_load_with_none() {
+        let p = temp("oldcustom");
+        fs::write(&p, br#"{"keepScreenshots":10,"showWindowTitles":true}"#).unwrap();
+        let s = Settings::load(&p);
+        assert_eq!(s.keep_screenshots, Some(10));
+        assert!(s.custom_words.is_empty() && s.custom_patterns.is_empty());
+        assert!(s.custom_rules().is_ok());
+    }
+
+    #[test]
+    fn custom_rules_use_camel_case_names_in_the_file() {
+        let p = temp("camel");
+        with_custom(vec!["acme".into()], vec!["a+".into()])
+            .save(&p)
+            .unwrap();
+        let text = fs::read_to_string(&p).unwrap();
+        assert!(text.contains("\"customWords\""), "{text}");
+        assert!(text.contains("\"customPatterns\""), "{text}");
+    }
+
+    #[test]
+    fn custom_entries_that_must_be_refused_are_refused_without_quoting_them() {
+        let long = "a".repeat(MAX_CUSTOM_CHARS + 1);
+        let many: Vec<String> = (0..=MAX_CUSTOM_ENTRIES)
+            .map(|i| format!("{SENTINEL}{i}"))
+            .collect();
+        let cases = [
+            with_custom(vec![format!("ok {SENTINEL}"), "   ".into()], vec![]),
+            with_custom(vec![], vec![format!("{SENTINEL}(")]),
+            with_custom(vec![], vec![format!("{SENTINEL}{{1}}{{2}}[")]),
+            with_custom(vec![], vec!["".into()]),
+            with_custom(vec![format!("{SENTINEL}{long}")], vec![]),
+            with_custom(vec![], vec![format!("{SENTINEL}{long}")]),
+            with_custom(vec![], vec![format!("({SENTINEL}\\w{{200}}){{200}}")]),
+            with_custom(many.clone(), vec![]),
+            with_custom(vec![], many),
+        ];
+        for (i, s) in cases.iter().enumerate() {
+            let e = s.validate().expect_err(&format!("case {i} should be refused"));
+            assert!(!e.contains(SENTINEL), "case {i}: {e}");
+            assert!(s.custom_rules().is_err(), "case {i}");
+        }
+        let e = cases[1].validate().unwrap_err();
+        assert_eq!(e, "custom pattern 1 is not valid");
+        assert_eq!(cases[0].validate().unwrap_err(), "custom word 2 is empty");
+    }
+
+    #[test]
+    fn custom_entries_at_the_limits_are_accepted() {
+        let words: Vec<String> = (0..MAX_CUSTOM_ENTRIES).map(|i| format!("word{i}")).collect();
+        let s = with_custom(words, vec!["a".repeat(MAX_CUSTOM_CHARS)]);
+        assert!(s.validate().is_ok());
+        assert!(s.custom_rules().is_ok());
+    }
+
+    #[test]
+    fn bad_custom_entries_in_the_file_are_dropped_one_by_one() {
+        let p = temp("badcustom");
+        fs::write(&p, br#"{"customWords":["acme","  "],"customPatterns":["(","PROJ-[0-9]+"],"keepScreenshots":7}"#).unwrap();
+        let s = Settings::load(&p);
+        assert_eq!(s.custom_words, vec!["acme".to_string()]);
+        assert_eq!(s.custom_patterns, vec!["PROJ-[0-9]+".to_string()]);
+        assert_eq!(s.keep_screenshots, Some(7));
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn rules_built_from_settings_hide_the_word_and_the_pattern() {
+        let s = with_custom(vec!["Zebracorp".into()], vec!["PROJ-[0-9]+".into()]);
+        let rules = s.custom_rules().unwrap();
+        assert_eq!(crate::pii::scrub("ZEBRACORP wants PROJ-42", &rules), "[custom] wants [custom]");
+        assert_eq!(crate::pii::scrub("zebracorps", &rules), "zebracorps");
+        let shown = format!("{rules:?}");
+        assert!(!shown.contains("Zebracorp") && !shown.contains("PROJ"), "{shown}");
     }
 
     #[test]

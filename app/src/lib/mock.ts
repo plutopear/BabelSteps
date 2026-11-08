@@ -1,6 +1,6 @@
 // BABELSTEPS_MOCK_BACKEND: dev-only, in-memory stand-in for the Tauri commands.
 // Sample data is made up. Never imported in production builds (see api.ts).
-import type { Block, Recording, StepBlock, ExportSummary } from "./types";
+import type { Block, Recording, StepBlock, ExportSummary, Template } from "./types";
 
 const FOLDER = "C:\\Sample\\BabelSteps";
 const store = new Map<string, Recording>();
@@ -27,6 +27,35 @@ function seed(name: string, blocks: Block[], created: number) {
   store.set(`${FOLDER}\\${id}.bsrec`, {
     format_version: 2, id, title: name, created_unix_ms: created, blocks,
   });
+}
+
+// Same sections as core/src/templates.rs (dev-only copy).
+function templateBlocks(t: Template): Block[] {
+  const h = (id: string, text: string): Block => ({ type: "heading", id, level: 2, text });
+  const p = (id: string, text: string): Block => ({ type: "text", id, text });
+  const l = (id: string, item: string): Block => ({ type: "list", id, ordered: false, items: [item] });
+  if (t === "helpdesk_how_to")
+    return [
+      h("template-purpose", "Purpose"),
+      p("template-purpose-text", "Describe in one sentence what this guide helps someone do."),
+      h("template-before", "Before you start"),
+      l("template-before-list", "Add anything the reader needs first, or delete this section."),
+      h("template-steps", "Steps"),
+      h("template-result", "Result"),
+      p("template-result-text", "Describe what the reader should have when they finish."),
+    ];
+  if (t === "training_guide")
+    return [
+      h("template-goal", "Goal"),
+      p("template-goal-text", "Describe in one sentence what the learner will be able to do."),
+      { type: "callout", id: "template-tip", kind: "tip", text: "Take your time; you can repeat these steps as often as you like." },
+      h("template-needs", "What you need"),
+      l("template-needs-list", "Add anything the learner needs first, or delete this section."),
+      h("template-steps", "Steps"),
+      h("template-expect", "What you should see"),
+      p("template-expect-text", "Describe what the learner should see when they finish."),
+    ];
+  return [];
 }
 
 seed("Sample: Reset a password", [
@@ -116,7 +145,7 @@ function recStatus() {
 }
 // Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
 (globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
-let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false, showWindowTitles: false };
+let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false, showWindowTitles: false, customWords: [] as string[], customPatterns: [] as string[] };
 function busy(): never {
   throw { kind: "busy", message: "" };
 }
@@ -124,7 +153,7 @@ function busy(): never {
 export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promise<unknown> {
   await wait(60);
   if (R.active && ["save_recording", "open_recording", "create_recording", "close_recording",
-    "rename_recording", "delete_recording", "export_markdown", "export_pdf"].includes(cmd)) busy();
+    "rename_recording", "delete_recording", "export_markdown", "export_pdf", "export_single_html"].includes(cmd)) busy();
   switch (cmd) {
     case "recording_status":
       return recStatus();
@@ -135,8 +164,25 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
     case "save_settings": {
       const n = (a.settings as typeof settings);
       if (n.keepScreenshots !== null && n.keepScreenshots < 1) throw { kind: "invalid_argument", message: "" };
+      // Like the real app, errors give the position and never quote the entry.
+      for (const [list, noun] of [[n.customWords, "word"], [n.customPatterns, "pattern"]] as const) {
+        if (list.length > 100) throw { kind: "invalid_argument", message: `too many custom ${noun}s (at most 100)` };
+        for (const [i, e] of list.entries()) {
+          let bad = e.trim() === "" ? "is empty" : e.length > 200 ? "is longer than 200 characters" : "";
+          if (!bad && noun === "pattern") try { new RegExp(e); } catch { bad = "is not valid"; }
+          if (bad) throw { kind: "invalid_argument", message: `custom ${noun} ${i + 1} ${bad}` };
+        }
+      }
       settings = structuredClone(n);
       return Object.values(n.hotkeys).filter((k) => k.split("+").length < 4).map((k) => `${k} may clash with browsers or other apps.`);
+    }
+    case "export_settings":
+      return null;
+    case "import_settings": {
+      // Dev only: a file name ending in bad.json plays a refused file.
+      if (String(a.path).endsWith("bad.json")) throw { kind: "invalid_argument", message: "This file is not a BabelSteps settings export." };
+      settings = { ...structuredClone(settings), keepScreenshots: 50, closeToTray: true };
+      return [];
     }
     case "clear_notice":
       R.notice = null;
@@ -209,7 +255,9 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       const title = String(a.title).trim();
       if (!title) throw { kind: "invalid_argument", message: "" };
       const path = `${FOLDER}\\new-${++seq}.bsrec`;
-      const rec: Recording = { format_version: 2, id: `n${seq}`, title, created_unix_ms: Date.now(), blocks: [] };
+      const rec: Recording = { format_version: 2, id: `n${seq}`, title, created_unix_ms: Date.now(),
+        blocks: templateBlocks((a.template as Template | null | undefined) ?? "blank"),
+      };
       store.set(path, rec);
       open = path;
       return { path, recording: structuredClone(rec) };
@@ -242,6 +290,9 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       return summary(current());
     case "export_pdf":
       await wait(1200);
+      return summary(current());
+    case "export_single_html":
+      await wait(900);
       return summary(current());
   }
   throw { kind: "invalid_argument", message: "" };

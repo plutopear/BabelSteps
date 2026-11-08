@@ -1171,7 +1171,9 @@ impl Analysis {
                     }
                 }
             }
-            self.recording.blocks.push(block);
+            // After the template's "Steps" heading if there is one, else at the end.
+            let at = babelsteps_core::templates::steps_insert_index(&self.recording.blocks);
+            self.recording.blocks.insert(at, block);
             self.dirty = true;
         }
         // Screenshots the normalizer will never use: dropped in memory.

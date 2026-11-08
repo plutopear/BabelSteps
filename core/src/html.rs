@@ -8,14 +8,22 @@
 //! escaped form (`&lt;u&gt;`) and are turned back into real tags only when exact.
 
 use crate::export::validate_image_path;
-use crate::markdown::{encode_path, WITHHELD_SENTENCE};
+use crate::markdown::{encode_path, first_block_repeats_title, WITHHELD_SENTENCE};
 use crate::export_options::{recorded_on_line, step_time, technical_details, ExportOptions, DETAILS_HEADING, DETAILS_STEPS_HEADING};
 use crate::model::{Block, CalloutKind, Recording};
+use std::collections::HashMap;
 
 /// Shown in place of an image whose path is not a plain `images/...` path.
 pub const IMAGE_UNAVAILABLE: &str = "Image unavailable.";
 
 pub const CSP: &str = "default-src 'none'; img-src 'self' file: data:; style-src 'unsafe-inline'";
+
+/// The single-file export loads nothing at all: its pictures are `data:` URIs.
+pub const SINGLE_FILE_CSP: &str = "default-src 'none'; img-src data:; style-src 'unsafe-inline'";
+
+/// Image path (`images/...`) to the `data:` URI that replaces it in a
+/// single-file export. A path missing from the map is shown as unavailable.
+pub type EmbeddedImages = HashMap<String, String>;
 
 const CSS: &str = "\
 @page { size: letter; margin: 0.75in; }
@@ -142,10 +150,35 @@ pub fn to_html(rec: &Recording) -> String {
 
 /// HTML with the export options applied (step times, technical details).
 pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
+    render(rec, opts, None)
+}
+
+/// One self-contained page (B10): the same document, with every picture taken
+/// from `images` as a `data:` URI and a policy that allows nothing else. The
+/// caller prepares the images (redactions burned in); a picture that is not in
+/// `images` is replaced by a note, never by a link to a file.
+pub fn to_single_html_with(rec: &Recording, opts: &ExportOptions, images: &EmbeddedImages) -> String {
+    render(rec, opts, Some(images))
+}
+
+/// What goes in `src`: a relative path for the folder export, a data URI for
+/// the single-file export. `None` when there is nothing safe to show.
+fn image_src(path: &str, images: Option<&EmbeddedImages>) -> Option<String> {
+    if !validate_image_path(path) {
+        return None;
+    }
+    match images {
+        None => Some(src_attr(path)),
+        Some(map) => map.get(path).map(|uri| escape_html(uri)),
+    }
+}
+
+fn render(rec: &Recording, opts: &ExportOptions, images: Option<&EmbeddedImages>) -> String {
+    let csp = if images.is_some() { SINGLE_FILE_CSP } else { CSP };
     let title = escape_html(rec.title.trim());
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
-    out.push_str(&format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{CSP}\">\n"));
+    out.push_str(&format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n"));
     out.push_str(&format!("<title>{title}</title>\n<style>\n{CSS}</style>\n</head>\n<body>\n"));
     out.push_str(&format!("<h1>{title}</h1>\n"));
     if let Some(line) = recorded_on_line(rec, opts) {
@@ -153,7 +186,8 @@ pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
     }
 
     let mut step_no = 0usize;
-    for block in &rec.blocks {
+    let skip = usize::from(first_block_repeats_title(rec));
+    for block in rec.blocks.iter().skip(skip) {
         match block {
             Block::Heading { level, text, .. } => {
                 let l = (*level).clamp(1, 6);
@@ -181,10 +215,9 @@ pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
                     // Privacy: never emit the image of a withheld step.
                     out.push_str(&format!("<p class=\"withheld\">{WITHHELD_SENTENCE}</p>\n"));
                 } else if let Some(img) = &step.screenshot {
-                    if validate_image_path(img) {
+                    if let Some(src) = image_src(img, images) {
                         out.push_str(&format!(
-                            "<figure class=\"step-image\"><img src=\"{}\" alt=\"Step {step_no}\"></figure>\n",
-                            src_attr(img)
+                            "<figure class=\"step-image\"><img src=\"{src}\" alt=\"Step {step_no}\"></figure>\n"
                         ));
                     } else {
                         out.push_str(&format!("<p class=\"withheld\">{IMAGE_UNAVAILABLE}</p>\n"));
@@ -203,8 +236,8 @@ pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
                 }
             }
             Block::Image { image, caption, .. } => {
-                if validate_image_path(image) {
-                    out.push_str(&format!("<figure><img src=\"{}\" alt=\"Image\">", src_attr(image)));
+                if let Some(src) = image_src(image, images) {
+                    out.push_str(&format!("<figure><img src=\"{src}\" alt=\"Image\">"));
                 } else {
                     out.push_str(&format!("<figure><p class=\"withheld\">{IMAGE_UNAVAILABLE}</p>"));
                 }
@@ -346,6 +379,25 @@ mod tests {
     }
 
     #[test]
+    fn single_file_embeds_only_what_it_is_given() {
+        let mut rec = Recording::new("r", "t", 0);
+        rec.blocks.push(Block::Image { id: "i".into(), image: "images/a.png".into(), caption: String::new() });
+        rec.blocks.push(Block::Image { id: "j".into(), image: "images/b.png".into(), caption: String::new() });
+        rec.blocks.push(Block::Image { id: "k".into(), image: "http://example.com/x.png".into(), caption: String::new() });
+        let mut images = EmbeddedImages::new();
+        images.insert("images/a.png".into(), "data:image/png;base64,AAAA".into());
+        // A path that is valid but was not prepared is a note, never a file link; so is an unsafe one.
+        let html = to_single_html_with(&rec, &ExportOptions::default(), &images);
+        assert_eq!(html.matches("<img src=\"data:image/png;base64,AAAA\"").count(), 1);
+        assert_eq!(html.matches("<img ").count(), 1);
+        assert_eq!(html.matches(IMAGE_UNAVAILABLE).count(), 2);
+        assert!(!html.contains("images/b.png") && !html.contains("example.com"));
+        assert!(html.contains(&format!("content=\"{SINGLE_FILE_CSP}\"")));
+        // The folder export of the same document is unchanged by the refactor.
+        assert!(to_html(&rec).contains("<img src=\"images/a.png\""));
+    }
+
+    #[test]
     fn unmatched_markers_stay_literal_and_matched_ones_still_convert() {
         assert_eq!(rich("a ` b ` c ` d"), "a <code> b </code> c ` d");
         assert_eq!(rich("*a* *b"), "<em>a</em> *b");
@@ -369,6 +421,19 @@ mod tests {
         assert_eq!(rich("one\ntwo"), "one<br>\ntwo");
         assert_eq!(rich("2 * 3"), "2 * 3");
         assert_eq!(rich("a & b"), "a &amp; b");
+    }
+
+    #[test]
+    fn first_block_h1_equal_to_title_gives_one_h1() {
+        let mut rec = Recording::new("r", "Guide", 0);
+        rec.blocks.push(Block::Heading { id: "h".into(), level: 1, text: "Guide".into() });
+        rec.blocks.push(Block::Text { id: "t".into(), text: "Intro.".into() });
+        assert_eq!(to_html(&rec).matches("<h1>").count(), 1);
+        // A different H1 is kept next to the title.
+        rec.blocks[0] = Block::Heading { id: "h".into(), level: 1, text: "Other".into() };
+        let html = to_html(&rec);
+        assert_eq!(html.matches("<h1>").count(), 2);
+        assert!(html.contains("<h1>Other</h1>"));
     }
 
     #[test]

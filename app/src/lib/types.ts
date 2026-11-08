@@ -54,6 +54,23 @@ export interface Recording {
   blocks: Block[];
 }
 
+/** Starting point for a new recording (E3). Mirrors core/src/templates.rs. */
+export type Template = "blank" | "helpdesk_how_to" | "training_guide";
+
+export const TEMPLATES: { id: Template; label: string; hint: string }[] = [
+  { id: "blank", label: "Blank", hint: "An empty document. Recorded steps are added to it." },
+  {
+    id: "helpdesk_how_to",
+    label: "Helpdesk how-to",
+    hint: "Sections for the purpose, what to do first, the steps and the result.",
+  },
+  {
+    id: "training_guide",
+    label: "Training guide",
+    hint: "Sections for the goal, what you need, the steps and what you should see, with a tip.",
+  },
+];
+
 export interface RecordingSummary {
   path: string;
   title: string;
@@ -149,4 +166,8 @@ export interface Settings {
   closeToTray: boolean;
   /** A3: name the full window title in click steps. Off by default for privacy. */
   showWindowTitles: boolean;
+  /** B14: words hidden from typed text (whole word, any case). At most 100, 200 characters each. */
+  customWords: string[];
+  /** B14: regular expressions hidden from typed text. Same limits. */
+  customPatterns: string[];
 }

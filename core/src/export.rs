@@ -1,4 +1,5 @@
-//! Export to a folder: `document.md` or `document.html`, plus `images/`.
+//! Export to a folder: `document.md` or `document.html`, plus `images/`; or to
+//! one self-contained `.html` file with the pictures embedded.
 //!
 //! Every image is read from the recording folder, passed through
 //! [`prepare_image`] (redactions burned in, metadata stripped) and written to
@@ -7,8 +8,9 @@
 //! half-finished folder behind (apart from an empty output folder).
 
 use crate::export_options::ExportOptions;
-use crate::html::to_html_with;
+use crate::html::{to_html_with, to_single_html_with, EmbeddedImages};
 use crate::image_export::{prepare_image, Shrink, PRINT_SHRINK};
+use crate::screenshot::ShotFormat;
 use crate::markdown::to_markdown_with;
 use crate::model::{Block, Recording, Rect};
 use crate::storage::is_reserved_device_name;
@@ -286,6 +288,41 @@ pub fn prepare_html_export_with(
     check_output_clear(out_dir)?;
     let p = prepare_all(rec, source_dir, Some(PRINT_SHRINK))?;
     write_bundle(out_dir, "document.html", &to_html_with(rec, opts), &p.files)?;
+    Ok(p.report)
+}
+
+/// Write the document as one self-contained HTML file at `out_file` (B10). The
+/// pictures go through the same [`prepare_image`] path as every other export,
+/// at print size, and are embedded as `data:` URIs, so the redaction boxes are
+/// part of the pixels and no original ever appears. The file holds no link,
+/// script or font. It is written beside its final name and renamed, so a
+/// failed export never leaves a half-written file; an existing file is
+/// replaced (the save dialog asks the user first).
+pub fn export_single_html_with(
+    rec: &Recording,
+    source_dir: &Path,
+    out_file: &Path,
+    opts: &ExportOptions,
+) -> Result<ExportReport, ExportError> {
+    let p = prepare_all(rec, source_dir, Some(PRINT_SHRINK))?;
+    let mut images = EmbeddedImages::with_capacity(p.files.len());
+    for (path, bytes) in &p.files {
+        let mime = match ShotFormat::sniff(bytes) {
+            Some(ShotFormat::Png) => "image/png",
+            Some(ShotFormat::Jpeg) => "image/jpeg",
+            None => return Err(ExportError::Image(format!("{path}: unknown picture format"))),
+        };
+        images.insert(path.clone(), format!("data:{mime};base64,{}", crate::base64::encode(bytes)));
+    }
+    let html = to_single_html_with(rec, opts, &images);
+
+    let mut part_name = out_file.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    part_name.push(".part");
+    let part = out_file.with_file_name(part_name);
+    if let Err(e) = std::fs::write(&part, html).and_then(|()| std::fs::rename(&part, out_file)) {
+        let _ = std::fs::remove_file(&part);
+        return Err(ExportError::Io(e.to_string()));
+    }
     Ok(p.report)
 }
 
