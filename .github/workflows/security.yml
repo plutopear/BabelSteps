@@ -16,7 +16,9 @@ permissions:
 
 concurrency:
   group: security-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on main: a quick second merge used to cancel the
+  # first merge's checks, so that commit was never fully tested.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   cargo-deny:
