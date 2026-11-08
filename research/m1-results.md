@@ -187,3 +187,21 @@ Run with the owner's OK on the release build, using `live-tray-test.ps1` in the 
   - The fail-closed path itself (it never triggered).
 - After this run, the privacy audit found that the refused window could be shown again while its error message was open, and that the window appeared before its hardening was confirmed. Both are fixed: the window is now built hidden and shown only once the hardening is confirmed, and a timeout reports a hardening step that never runs. The audit passed after the fix. **The window-showing change has not been live-tested.** The 24 of 24 run used the build before it. A later finding is noted but not fixed: a late "window destroyed" event can stop Show from bringing an already-open window to the front. It cannot show an unhardened window.
 - Quick follow-up (2026-11-08, with the owner's OK, no recording made): on the hidden-until-hardened build, the window appeared 0.66 s after launch, the Library screen loaded at 0.81 s, right-clicking opened no browser menu, and closing quit the app (default setting). 4 of 4.
+
+## 2026-11-08: Screenshot size (PSR-1)
+
+Built in `core/src/screenshot.rs`. Measured in a Linux cloud container (4 cores), not on the owner's PC, using test pages rendered by headless Chromium at 5120x1440: text documents in five columns (docs), a 40-column spreadsheet (table), a settings page with 150 controls (form), the docs page with a noisy photo-like gradient over its left 10% (photo10), and a page whose left half is that gradient (mixed). No real screen content was used. Timings are single runs on that container.
+
+| Screen | Photo-like share | Stored as | Before (fast PNG) | Now | Encode time now | Print-size export |
+| --- | --- | --- | --- | --- | --- | --- |
+| docs | 0.04 | PNG | 4,249 KB | 1,761 KB | 99 ms | 595 KB |
+| table | 0.04 | PNG | 4,462 KB | 991 KB | 71 ms | 949 KB |
+| form | 0.07 | PNG | 1,665 KB | 561 KB | 58 ms | 303 KB |
+| photo10 | 0.13 | PNG | 5,677 KB | 3,201 KB | 161 ms | 727 KB |
+| mixed | 0.49 | JPEG | 10,397 KB | 1,476 KB | 139 ms | 137 KB |
+
+- Choosing the format reads every 4th row and took about 9 ms per frame, on the analysis thread.
+- An assumed 100-step mix (30 docs, 25 table, 25 form, 10 photo10, 10 mixed; a guess, not measured usage) went from 431 MB to 135 MB on disk. Its print-size images, which the HTML and PDF exports use, total 56 MB. The PDF itself was not measured. Steps Recorder needs about 40 MB per 100 steps.
+- Options measured and not used: JPEG at quality 80 to 95 was larger than the compressed PNG on every UI screen (docs at quality 85: 1,897 KB), and blurs text. Lossless WebP from the `image` crate was larger than PNG on the form page (1,129 KB). Deflate level 6 was 1-15% smaller than level 3 for about twice the time. Quality 80 JPEG text looked softer than 85 at 2x zoom.
+- Exports used the fastest PNG setting with an alpha channel; they now use the same compressed RGB PNG, or JPEG for JPEG sources, still re-encoded from pixels with no metadata.
+- **Not tested:** real Windows screens (ClearType text may compress worse; M0 measured 1.5-3.8 MB for real fast-PNG frames, in the same range as the test pages); the fastest-PNG fallback when frames queue up (more than 100 MB in flight); encode times on the owner's PC; a real 100-step recording; the PDF size; the capture self-test on this build.

@@ -10,7 +10,6 @@ publish = false
 anyhow = "1"
 babelsteps-core = { path = "../../core" }
 crossbeam-channel = "0.5"
-png = "0.18"
 
 [features]
 # Fault injection and the `capture-selftest` binary. Never enabled in a release build.

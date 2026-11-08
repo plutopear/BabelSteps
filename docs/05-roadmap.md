@@ -47,7 +47,7 @@ Done this session:
 
 Next, in order:
 1. Owner clicks: tray menu Stop, Show and Quit, a double-click on the tray icon, seeing the frame and the retention notice, and the Settings click-through.
-2. Claude can build without the owner: smaller stored images (PSR-1), the window-or-monitor choice (A6, Q13), and the opt-in full window title (A3).
+2. Claude can build without the owner: the window-or-monitor choice (A6, Q13) and the opt-in full window title (A3). Smaller stored images (PSR-1) were built on 2026-11-08 and still need a size measurement on a real recording.
 3. Owner decisions in the checklist: A9/Q2, PSR-6, PSR-7, and the minor PSR-2, PSR-3 and PSR-5.
 4. Hardware or machine state: an elevated window (Q17), sleep, lock and resolution change, and a second monitor (Q20).
 
@@ -63,7 +63,7 @@ Live tests:
 - Retention settings (A8).
 - First task: a Tauri 2 shell, to prove the UI half of the stack and measure D1, D3, and D7.
 - Carried over from M0: multiple monitors and mixed DPI, elevated windows and UAC, Chrome and Firefox, Steps Recorder's comment, pause, and settings UI, and sleep, lock, and resolution changes.
-- Image size decision: crop to the active window, choice of format, and downscaling for export.
+- Image size decision: crop to the active window, choice of format, and downscaling for export. Format decided 2026-11-08 (PSR-1): lossless PNG for UI screens, JPEG for photo-heavy ones, full resolution; cropping stays with A6.
 - Privacy fixes from the M0 audit, none of which may carry over from the spike: withhold the screenshot when the password check fails or times out, scan all visible windows, use all three password signals, and name the app rather than the window title (`describe_click` in `core`).
 
 **Exit:** a parity checklist, derived from the baseline work, passes item by item. Performance targets D1–D3 met.

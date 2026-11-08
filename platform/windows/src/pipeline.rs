@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! input-hooks ──raw events──▶ capture ──events + frames──▶ analysis ──images, saves──▶ writer
-//!  (timestamp,                (reads back the frame       (UI Automation, password     (PNG, disk)
+//!  (timestamp,                (reads back the frame       (UI Automation, password     (PNG/JPEG, disk)
 //!   queue only)                before each event)          check, redaction, steps)
 //! ```
 //!
@@ -27,6 +27,7 @@ use crate::uia::{ElementInfo, UiaFaults, UiaPool, UiaStats};
 use anyhow::{bail, Result};
 use babelsteps_core::normalize::{Event, Key, Mods, Normalizer, NormalizerConfig};
 use babelsteps_core::pii::CustomRules;
+use babelsteps_core::screenshot::{Effort, ShotFormat};
 use babelsteps_core::storage::{Bundle, IMAGES_DIR};
 use babelsteps_core::{Block, MouseButton, Recording, Rect, Target};
 use crossbeam_channel::{bounded, select, unbounded, Receiver, Sender};
@@ -228,7 +229,8 @@ impl Recorder {
 
         let (write_tx, write_rx) = unbounded::<WriteJob>();
         let (done_tx, done_rx) = bounded::<(Bundle, Vec<String>)>(1);
-        thread::Builder::new().name("step-writer".into()).spawn(move || writer_loop(bundle, write_rx))?;
+        let writer_budget = in_flight.clone();
+        thread::Builder::new().name("step-writer".into()).spawn(move || writer_loop(bundle, write_rx, writer_budget))?;
 
         let opts = CaptureOpts {
             only_injected: config.only_injected,
@@ -822,7 +824,10 @@ impl Analysis {
         if let Some((x, y)) = marker {
             shot.frame.draw_click_marker(x, y);
         }
-        let name = format!("shot-{}{:06}.png", self.id_prefix, self.next_image);
+        // PNG for UI, JPEG for photo-like screens (PSR-1). Decided here, after the
+        // black-out, because the name is part of the step before the writer runs.
+        let ext = shot.frame.stored_format().extension();
+        let name = format!("shot-{}{:06}.{ext}", self.id_prefix, self.next_image);
         self.next_image += 1;
         let path = format!("{IMAGES_DIR}/{name}");
         self.pending.insert(path.clone(), shot);
@@ -1021,12 +1026,26 @@ fn to_target(e: &ElementInfo) -> Target {
     }
 }
 
-fn writer_loop(bundle: Bundle, rx: Receiver<WriteJob>) {
+/// PNG encoding normally takes 60-100 ms per 5120x1440 frame, several times the
+/// fastest setting. Once frames in flight use more than this share of the
+/// budget, the writer switches to the fastest setting, so that a burst of
+/// clicks gets bigger files rather than missing screenshots.
+fn effort_for(in_flight_bytes: usize) -> Effort {
+    if in_flight_bytes > FRAME_BUDGET_BYTES / 2 {
+        Effort::Hurry
+    } else {
+        Effort::Normal
+    }
+}
+
+fn writer_loop(bundle: Bundle, rx: Receiver<WriteJob>, in_flight: Arc<AtomicUsize>) {
     let mut errors = Vec::new();
     for job in rx {
         match job {
             WriteJob::Image { name, frame, _ticket } => {
-                let result = frame.encode_png().and_then(|png| bundle.write_image(&name, &png).map_err(Into::into));
+                let effort = effort_for(in_flight.load(Ordering::SeqCst));
+                let format = ShotFormat::from_name(&name).unwrap_or(ShotFormat::Png);
+                let result = frame.encode(format, effort).and_then(|b| bundle.write_image(&name, &b).map_err(Into::into));
                 if let Err(e) = result {
                     errors.push(format!("{name}: {e}"));
                 }

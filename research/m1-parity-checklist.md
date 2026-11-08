@@ -4,7 +4,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Rules.** Pass means a recorded test on the real desktop shows it. Code without a test is "not tested". Unit tests alone, for behavior that depends on the real desktop, are "partial". Live results from before the 2026-11-08 hotkey and close-path changes count as partial until re-run on the current build.
 
-**Where it stands (2026-11-08, end of session):** Pass 2, Partial 20, Not tested 2, Not built 4, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), something built, hardware the owner may not have (a second monitor), or an owner decision.
+**Where it stands (2026-11-08, end of session):** Pass 2, Partial 21, Not tested 2, Not built 3, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), something built, hardware the owner may not have (a second monitor), or an owner decision.
 
 **Close to the tray, 2026-11-08 (Q21; 24 of 24, plus a quick 4 of 4 on the final build; `research/m1-results.md`):** D1 is met in tray mode, at 6 MB and 0.3% of one core with the window closed. D3 was measured warm only, at 0.66 to 0.81 s to the window. The start, note and stop shortcuts work with no window. The window is rebuilt hardened, and it stays hidden until the hardening is confirmed.
 
@@ -28,7 +28,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, passed on 2026-11-08 (67 of 67, `research/m1-results.md`): typing with keystrokes off, step titles without the window title, the outline and the click marker, on our own test window. That moves the self-test half of A2, A3 and A11 forward; real apps are still untested. Known gap: taskbar buttons and caption text in newer title bars.
 
-**Claude can build without the owner:** smaller stored images (PSR-1), the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
+**Claude can build without the owner:** the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
 
 ## Summary
 
@@ -56,7 +56,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | D3 | Cold start to the tray takes under 1 second (M1 exit target). | Partial |
 | D6 | A screenshot is ready within 150 ms of a click and shows the screen just before the click. This is a deliberate difference from Steps Recorder, which shows the screen after the click (Q3). | Partial |
 | D7 | Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions. | Partial |
-| PSR-1 | Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling). | Not built |
+| PSR-1 | Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling). | Partial |
 | PSR-2 | Each step has a number and a timestamp. | Partial |
 | PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Not built |
 | PSR-4 | Function keys, modifier keys and shortcuts are shown even when typed text is not. | Partial |
@@ -245,13 +245,13 @@ Memory while recording stays under 250 MB on a 5120x1440 screen, including in lo
 - **Evidence:** Only proxies: research/m0-spike-results.md, spike peak about 160 MB; research/m1-results.md 'Recording engine self-test': frames held for analysis stayed within the 200 MB budget (0 over budget). docs/03-architecture.md sets the 200 MB frame budget. m1-results lists long sessions as not tested. Live app test 2026-11-08 (research/m1-results.md): during a short recording with the window open, the app process used 151 MB of private memory, and 345 MB including the WebView2 processes. That is a single sample on the owner's screen. Long sessions are untested, and it is open whether the 250 MB target counts WebView2.
 - **Gap:** Downgraded from partial. Neither the M1 engine nor the app (with WebView2) has had its whole-process memory measured while recording; staying inside the frame budget is not a memory measurement. Guess: the frame budget alone could reach 200 MB under load, so 250 MB is at risk once the UI is added. No test is longer than a few dozen steps. Needed: working-set samples during a release-app recording, plus a run of 100+ steps or 30+ minutes that checks memory, the frame budget, and the step and image counts on disk (owner's OK and an idle PC).
 
-### PSR-1: Not built
+### PSR-1: Partial
 
 Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling).
 
 - **Steps Recorder:** Full monitor at native 5120x1440, about 390 KB per JPEG. 31 steps were 16.9 MB as MHTML and 10.3 MB zipped.
-- **Evidence:** platform/windows/src/frame.rs encode_png (PNG only). research/m0-spike-results.md 'Image size': 1.5-3.8 MB per full 5120x1440 PNG frame, with finding 7 estimating 190-560 MB per 100 steps against about 40 MB for Steps Recorder. research/m2-results.md D5: a 100-step 5120x1440 PDF of synthetic images was 225.6 MB, probably overstated because synthetic images compress poorly. docs/05-roadmap.md M1 lists 'Image size decision: crop to the active window, choice of format, and downscaling for export' as open.
-- **Gap:** No crop, no lossy format and no downscaling for storage are built (the PDF scales to 2000 px wide only for printing). Recordings are roughly 4 to 10 times larger per image than Steps Recorder's. This is Claude's technical choice, but the export size decides whether files can be emailed or attached to tickets. Needed: implement it, then measure disk size and export size per 100 real steps.
+- **Evidence:** Built 2026-11-08 (core/src/screenshot.rs, used by platform/windows/src/frame.rs and pipeline.rs, and by core/src/image_export.rs for exports). Full monitor, full resolution; UI screens are stored as tightly compressed lossless PNG, and screens that are largely photo-like as JPEG quality 85 with full colour resolution. Measured on synthetic 5120x1440 screenshots (research/m1-results.md 'Screenshot size (PSR-1)'): UI screens 2.4 to 4.5 times smaller than before (0.5 to 1.7 MB each), a photo-heavy screen 7 times smaller (10.2 MB to 1.4 MB); an assumed 100-step mix went from 431 MB to 135 MB on disk, and its print-size images (HTML and PDF input) total 56 MB. Unit tests cover the format choice, lossless PNG, no metadata in either format, and redaction in JPEG exports.
+- **Gap:** Not measured on a real recording: the numbers come from Chromium-rendered test pages, and real Windows text (ClearType) may compress worse. Still about 3.5 times Steps Recorder per image, because text is kept pixel-exact; going further means palette PNG or smaller exports, which trade readability. Not tested live: the fastest-PNG fallback when screenshots queue up, the format choice in the capture self-test, and the PDF size. Needed: a release-app recording of about 100 real steps, measuring disk and export sizes (owner's OK).
 
 ### PSR-2: Partial
 

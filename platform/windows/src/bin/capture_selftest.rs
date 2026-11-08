@@ -86,7 +86,7 @@ fn monitor_of(x: i32, y: i32) -> Result<Monitor> {
 }
 
 fn load(bundle: &Path, rel: &str, m: &Monitor) -> Result<Frame> {
-    Frame::load_png(&bundle.join(rel), m.x, m.y).with_context(|| format!("reading {rel}"))
+    Frame::load(&bundle.join(rel), m.x, m.y).with_context(|| format!("reading {rel}"))
 }
 
 fn near(a: [u8; 3], b: [u8; 3], tol: u8) -> bool {
@@ -286,7 +286,7 @@ fn password(c: &mut Checks, win: &TestWindow, dir: &Path, crop_out: &Path) -> Re
     if let Some(f) = last.filter(|_| win.unobscured()) {
         let (wx, wy, ww, wh) = win.client_rect()?;
         let crop = crop(&f, wx, wy, ww, wh);
-        std::fs::write(crop_out, crop.encode_png()?)?;
+        std::fs::write(crop_out, crop.encode(babelsteps_core::screenshot::ShotFormat::Png, babelsteps_core::screenshot::Effort::Normal)?)?;
         c.info(format!("crop of the test window from the last image: {}", crop_out.display()));
     }
     let (unref, missing) = orphans(&bundle, &report.recording);
