@@ -15,8 +15,11 @@ use crate::screenshot::{self, Effort};
 use image::imageops::{resize, FilterType};
 
 /// Width for printed (HTML and PDF) images. Letter pages print about 7.5 inches
-/// wide, so this is over 250 dpi; full-size ultrawide shots made printing slow.
-pub const PRINT_MAX_WIDTH: u32 = 2000;
+/// wide, so this is over 200 dpi; full-size ultrawide shots made printing slow.
+/// Lowered from 2000 on 2026-11-08 (PSR-1): WebView2 re-compresses PDF images
+/// itself, so pixel count is what sets the PDF size, and 2000 px gave about
+/// 11 MB per 30 real steps against the 10 MB target.
+pub const PRINT_MAX_WIDTH: u32 = 1600;
 
 pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
     let (format, mut img) = screenshot::decode(src).map_err(ExportError::Image)?;
