@@ -61,3 +61,33 @@ pub fn foreground_is_elevated_for_us() -> bool {
         refused
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_elevated_is_stable_between_calls() {
+        // A process does not gain or lose administrator rights while it runs.
+        assert_eq!(is_elevated(), is_elevated());
+    }
+
+    #[test]
+    fn an_elevated_recorder_never_claims_the_window_in_front_is_out_of_reach() {
+        // True on every machine: elevated means "sees everything", so the
+        // warning ("clicks in it are not recorded") must never show. CI runners
+        // are elevated, so there this checks the real branch; on a normal
+        // desktop it only checks that the call is safe with any window in front.
+        if is_elevated() {
+            assert!(!foreground_is_elevated_for_us());
+        } else {
+            let _ = foreground_is_elevated_for_us();
+        }
+    }
+
+    #[test]
+    fn the_warning_flag_starts_off() {
+        // A fresh status must not warn before the first look at the front window.
+        assert!(!crate::pipeline::RecorderStatus::default().elevated_in_front);
+    }
+}
