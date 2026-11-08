@@ -178,7 +178,8 @@ impl MouseButton {
 pub struct Target {
     pub name: String,
     pub control_type: String,
-    /// Only filled when the user opts in. Never used in step titles.
+    /// Only filled when the user turned on "Show full window titles in steps"
+    /// (A3); `None` otherwise. Step titles use it only under that setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title: Option<String>,
     pub process_name: String,
@@ -204,31 +205,84 @@ pub struct Rect {
     pub h: i32,
 }
 
+impl Rect {
+    fn edges(&self) -> (i64, i64, i64, i64) {
+        let (x, y) = (i64::from(self.x), i64::from(self.y));
+        (x, y, x + i64::from(self.w), y + i64::from(self.h))
+    }
+
+    fn from_edges(x0: i64, y0: i64, x1: i64, y1: i64) -> Option<Rect> {
+        let fits = |v: i64| i32::try_from(v).ok();
+        (x0 < x1 && y0 < y1).then_some(())?;
+        Some(Rect { x: fits(x0)?, y: fits(y0)?, w: fits(x1 - x0)?, h: fits(y1 - y0)? })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.w <= 0 || self.h <= 0
+    }
+
+    /// The overlap of two rectangles, or `None` if they do not overlap.
+    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
+        if self.is_empty() || other.is_empty() {
+            return None;
+        }
+        let (a0, b0, a1, b1) = self.edges();
+        let (c0, d0, c1, d1) = other.edges();
+        Rect::from_edges(a0.max(c0), b0.max(d0), a1.min(c1), b1.min(d1))
+    }
+
+    /// The smallest rectangle holding both. An empty rectangle adds nothing.
+    pub fn union(&self, other: &Rect) -> Rect {
+        if other.is_empty() {
+            return *self;
+        }
+        if self.is_empty() {
+            return *other;
+        }
+        let (a0, b0, a1, b1) = self.edges();
+        let (c0, d0, c1, d1) = other.edges();
+        Rect::from_edges(a0.min(c0), b0.min(d0), a1.max(c1), b1.max(d1)).unwrap_or(*self)
+    }
+}
+
 /// Build the human-readable step title from a click and what was under it.
 /// Examples: `Left-click "Save" button in Notepad`, `Left-click at (120, 340)`.
-pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Target>) -> String {
+///
+/// The step names the app, not the window title, because titles often hold
+/// file names, page titles and customer names (A3, privacy doc section 1).
+/// Only when the user turned on the opt-in (`show_window_title`) and the target
+/// carries a title does the step name the window, as Steps Recorder does:
+/// `Left-click "Save" button in "Untitled - Notepad"`. The app name follows in
+/// brackets when the title does not already contain it.
+pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Target>, show_window_title: bool) -> String {
     let verb = button.label();
-    match target {
-        Some(t) if !t.name.trim().is_empty() => {
-            let ctl = t.control_type.trim().to_lowercase();
-            // Privacy: app name only, never the window title (it can hold
-            // document names or other private text).
-            let app = app_name(&t.process_name);
-            let mut s = format!("{verb} \"{}\"", t.name.trim());
-            if !ctl.is_empty() {
-                s.push(' ');
-                s.push_str(&ctl);
-            }
-            if !app.is_empty() {
-                s.push_str(" in ");
-                s.push_str(&app);
-            }
-            s
+    let Some(t) = target else { return format!("{verb} at ({x}, {y})") };
+    let app = app_name(&t.process_name);
+    let window = if show_window_title {
+        t.window_title.as_deref().map(str::trim).filter(|w| !w.is_empty())
+    } else {
+        None
+    };
+    let place = match window {
+        Some(w) if app.is_empty() || w.to_lowercase().contains(&app.to_lowercase()) => format!(" in \"{w}\""),
+        Some(w) => format!(" in \"{w}\" ({app})"),
+        None if !app.is_empty() => format!(" in {app}"),
+        None => String::new(),
+    };
+    let ctl = t.control_type.trim().to_lowercase();
+    if !t.name.trim().is_empty() {
+        let mut s = format!("{verb} \"{}\"", t.name.trim());
+        if !ctl.is_empty() {
+            s.push(' ');
+            s.push_str(&ctl);
         }
-        Some(t) if !t.control_type.trim().is_empty() => {
-            format!("{verb} {} at ({x}, {y})", t.control_type.trim().to_lowercase())
-        }
-        _ => format!("{verb} at ({x}, {y})"),
+        s + &place
+    } else if !ctl.is_empty() {
+        // Without the opt-in this keeps its old wording, with no app name.
+        let place = if window.is_some() { place.as_str() } else { "" };
+        format!("{verb} {ctl} at ({x}, {y}){place}")
+    } else {
+        format!("{verb} at ({x}, {y})")
     }
 }
 
@@ -391,5 +445,26 @@ mod retention_tests {
         ];
         assert!(r.apply_retention(1).is_empty());
         assert_eq!(shots(&r)[0], None);
+    }
+
+    #[test]
+    fn rect_intersect_and_union() {
+        let a = Rect { x: 0, y: 0, w: 100, h: 50 };
+        let b = Rect { x: 80, y: 40, w: 50, h: 50 };
+        assert_eq!(a.intersect(&b), Some(Rect { x: 80, y: 40, w: 20, h: 10 }));
+        assert_eq!(a.union(&b), Rect { x: 0, y: 0, w: 130, h: 90 });
+        // Touching edges do not overlap.
+        assert_eq!(a.intersect(&Rect { x: 100, y: 0, w: 10, h: 10 }), None);
+        // Negative coordinates (a monitor left of the main one).
+        let left = Rect { x: -1920, y: 0, w: 1920, h: 1080 };
+        assert_eq!(left.intersect(&Rect { x: -10, y: 10, w: 30, h: 30 }), Some(Rect { x: -10, y: 10, w: 10, h: 30 }));
+        // Empty rectangles add nothing and overlap nothing.
+        let empty = Rect { x: 500, y: 500, w: 0, h: 10 };
+        assert_eq!(a.union(&empty), a);
+        assert_eq!(empty.union(&a), a);
+        assert_eq!(a.intersect(&empty), None);
+        // Extreme values do not overflow.
+        let huge = Rect { x: i32::MAX - 1, y: 0, w: i32::MAX, h: 10 };
+        assert_eq!(huge.intersect(&a), None);
     }
 }

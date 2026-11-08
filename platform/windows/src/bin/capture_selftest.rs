@@ -14,7 +14,7 @@ use babelsteps_core::storage::Bundle;
 use babelsteps_core::{Action, Block, Recording, StepBlock};
 use babelsteps_windows::testing::{self, Frame, Monitor};
 use babelsteps_windows::testwin::{self, TestWindow, GREEN};
-use babelsteps_windows::{Recorder, RecorderConfig, RecorderReport};
+use babelsteps_windows::{Recorder, RecorderConfig, RecorderReport, Scope};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::Ordering;
@@ -65,6 +65,14 @@ fn start(dir: &Path, name: &str, keys: bool) -> Result<Recorder> {
     let rec = bundle.load()?;
     let r = Recorder::start(bundle, rec, config(keys))?;
     ms(700); // Let capture deliver its first frames.
+    Ok(r)
+}
+
+fn start_scoped(dir: &Path, name: &str, scope: Scope) -> Result<Recorder> {
+    let bundle = Bundle::create(dir, name, name, 0)?;
+    let rec = bundle.load()?;
+    let r = Recorder::start(bundle, rec, RecorderConfig { scope, ..config(false) })?;
+    ms(700);
     Ok(r)
 }
 
@@ -444,6 +452,127 @@ fn gdi_marked(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
         cl.first().is_some_and(|s| s.screenshot.is_some() && s.description.contains("after the action")),
         format!("description: {:?}", cl.first().map(|s| s.description.clone())),
     );
+    Ok(())
+}
+
+/// A6: recording one window or one monitor. Clicks outside are not recorded,
+/// and a window's screenshot is cut to the window.
+fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let (bx, by) = win.background_point()?;
+    let m = monitor_of(bx, by)?;
+    let device = {
+        let n = m.device.iter().position(|&ch| ch == 0).unwrap_or(m.device.len());
+        String::from_utf16_lossy(&m.device[..n])
+    };
+    let ring = |f: &Frame| [(18, 0), (-18, 0), (0, 18), (0, -18)].iter().filter(|(dx, dy)| f.sample(bx + dx, by + dy) == Some(MARKER)).count();
+
+    // One window: the test window itself. A click in the password field,
+    // then one on the background.
+    let r = start_scoped(dir, "scope-window", Scope::Window(win.hwnd_id()))?;
+    win.allow_focus(true);
+    let clicked = (|| -> Result<()> {
+        let (x, y) = win.pass_center()?;
+        win.safe_click(x, y)?;
+        ms(400);
+        win.safe_click(bx, by)?;
+        ms(500);
+        Ok(())
+    })();
+    win.allow_focus(false);
+    let (bundle, report) = stop(r)?;
+    clicked?;
+    let cl = clicks(&report.recording);
+    let expect = testing::window_bounds(win.hwnd_id())
+        .and_then(|b| b.intersect(&babelsteps_core::Rect { x: m.x, y: m.y, w: m.w, h: m.h }));
+    let mut shots = Vec::new();
+    if let Some(e) = expect {
+        for s in &cl {
+            if let Some(rel) = s.screenshot.as_deref() {
+                shots.push(load(&bundle, rel, &Monitor { x: e.x, y: e.y, ..m })?);
+            }
+        }
+    }
+    // Checked against the client area from testwin, not the product's own bounds call:
+    // the cut holds all of it and adds at most a title bar and borders.
+    let (cx, cy, cw, ch) = win.client_rect()?;
+    let cut = expect.is_some_and(|e| {
+        (e.w < m.w || e.h < m.h)
+            && shots.iter().all(|f| {
+                f.width as i32 == e.w
+                    && f.height as i32 == e.h
+                    && f.overlaps(&babelsteps_core::Rect { x: cx, y: cy, w: 1, h: 1 })
+                    && f.overlaps(&babelsteps_core::Rect { x: cx + cw - 1, y: cy + ch - 1, w: 1, h: 1 })
+                    && f.width as i32 <= cw + 40
+                    && f.height as i32 <= ch + 80
+            })
+    });
+    c.check(
+        "one window: clicks in the window are recorded, each screenshot cut to the window",
+        cl.len() == 2 && shots.len() == 2 && cut,
+        format!(
+            "clicks {}, images {:?}, window {:?}, monitor {}x{}",
+            cl.len(),
+            shots.iter().map(|f| (f.width, f.height)).collect::<Vec<_>>(),
+            expect.map(|e| (e.w, e.h)),
+            m.w,
+            m.h
+        ),
+    );
+    // Redaction and drawing use screen coordinates, so a cut frame must not shift them.
+    let (pass, user) = (win.pass_rect()?, win.user_rect()?);
+    let black = shots.iter().filter(|f| all_black(f, pass)).count();
+    c.check("one window: the password field is solid black in every cut screenshot", !shots.is_empty() && black == shots.len(), format!("{black} of {}", shots.len()));
+    let user_black = shots.iter().filter(|f| all_black(f, user)).count();
+    c.check("one window control: the user name field is not blacked out", !shots.is_empty() && user_black == 0, format!("blacked in {user_black}"));
+    let points = shots.last().map_or(0, ring);
+    c.check("one window: the click marker lands on the click in the cut screenshot", points == 4, format!("{points}/4 ring points red"));
+
+    // Control: scoped to another window, the same click is not recorded.
+    let other = unsafe { windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow() }.0 as isize;
+    let r = start_scoped(dir, "scope-other", Scope::Window(other))?;
+    win.safe_click(bx, by)?;
+    ms(500);
+    let (_bundle, report) = stop(r)?;
+    let n = steps(&report.recording).len();
+    c.check("one window: a click on another window is not recorded", n == 0, format!("steps {n}"));
+
+    // One monitor: the test window's monitor, whole-monitor screenshot.
+    let r = start_scoped(dir, "scope-monitor", Scope::Monitor(device.clone()))?;
+    win.safe_click(bx, by)?;
+    ms(500);
+    let (bundle, report) = stop(r)?;
+    let cl = clicks(&report.recording);
+    let dims = match cl.first().and_then(|s| s.screenshot.as_deref()) {
+        Some(rel) => Some(load(&bundle, rel, &m).map(|f| (f.width, f.height))?),
+        None => None,
+    };
+    c.check(
+        "one monitor: a click on the chosen monitor is recorded with the whole monitor",
+        cl.len() == 1 && dims == Some((m.w as u32, m.h as u32)),
+        format!("clicks {}, image {dims:?}, monitor {}x{}", cl.len(), m.w, m.h),
+    );
+
+    // Control: scoped to another monitor, the same click is not recorded.
+    match testing::monitors().into_iter().find(|o| o.device != m.device) {
+        Some(o) => {
+            let n = o.device.iter().position(|&ch| ch == 0).unwrap_or(o.device.len());
+            let r = start_scoped(dir, "scope-other-monitor", Scope::Monitor(String::from_utf16_lossy(&o.device[..n])))?;
+            win.safe_click(bx, by)?;
+            ms(500);
+            let (_bundle, report) = stop(r)?;
+            let n = steps(&report.recording).len();
+            c.check("one monitor: a click on another monitor is not recorded", n == 0, format!("steps {n}"));
+        }
+        None => c.info("one monitor: the click-on-another-monitor check was skipped (one monitor)"),
+    }
+
+    // A monitor that is not connected: recording refuses to start.
+    let refused = start_scoped(dir, "scope-gone", Scope::Monitor(r"\\.\MISSING-DISPLAY".into()));
+    let ok = refused.is_err();
+    if let Ok(r) = refused {
+        let _ = stop(r);
+    }
+    c.check("one monitor: a monitor that is not connected is refused", ok, "");
     Ok(())
 }
 
@@ -852,6 +981,39 @@ fn titles_typing_outline(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result
     Ok(())
 }
 
+/// A3 opt-in on: a click on our own window names the window title, and the
+/// title is saved with the step. The default-off half is checked in
+/// `titles_typing_outline`; this half proves the setting reaches the pipeline.
+fn window_title_opt_in(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let window_title = win.title();
+    let bundle = Bundle::create(dir, "wintitle", "wintitle", 0)?;
+    let rec = bundle.load()?;
+    let r = Recorder::start(bundle, rec, RecorderConfig { show_window_titles: true, ..config(false) })?;
+    ms(700);
+    let acted = (|| -> Result<()> {
+        let (x, y) = win.save_center()?;
+        win.safe_click(x, y)?;
+        ms(500);
+        Ok(())
+    })();
+    win.set_red(false);
+    let (bundle, report) = stop(r)?;
+    acted?;
+    let titles: Vec<String> = steps(&report.recording).iter().map(|s| s.title.clone()).collect();
+    let want = format!("Left-click \"Save\" button in \"{window_title}\"");
+    c.check(
+        "window titles on: the Save click names the window",
+        !window_title.is_empty() && titles.iter().any(|t| t.starts_with(&want)),
+        format!("titles: {titles:?}"),
+    );
+    c.check(
+        "window titles on: the title is saved in the recording",
+        !files_containing(&bundle, &window_title).is_empty(),
+        "control for the default-off check: the same search finds it when it is there",
+    );
+    Ok(())
+}
+
 fn run(out: &Path) -> Result<Checks> {
     let mut c = Checks { lines: Vec::new(), passed: 0, failed: 0 };
     std::fs::create_dir_all(out)?;
@@ -868,11 +1030,13 @@ fn run(out: &Path) -> Result<Checks> {
         before_state(&mut c, &win, &work, true)?;
         let images = password(&mut c, &win, &work, &crop_out)?;
         titles_typing_outline(&mut c, &win, &work)?;
+        window_title_opt_in(&mut c, &win, &work)?;
         window_changes_after_click(&mut c, &win, &work)?;
         fail_closed(&mut c, &win, &work, images)?;
         timeout_and_recovery(&mut c, &win, &work)?;
         scan_failure(&mut c, &win, &work)?;
         gdi_marked(&mut c, &win, &work)?;
+        scopes(&mut c, &win, &work)?;
         pause_and_comment(&mut c, &win, &work)?;
         frame_cue(&mut c, &win, &work)?;
         edge_clicks(&mut c, &win, &work)?;

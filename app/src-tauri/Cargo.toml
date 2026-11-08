@@ -4,6 +4,7 @@ description = "BabelSteps desktop app (Tauri shell)"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
+publish = false
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

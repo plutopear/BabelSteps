@@ -23,14 +23,17 @@ pub mod hotkeys;
 pub mod indicator;
 mod keys;
 mod monitors;
+pub mod os;
 mod pipeline;
 mod scan;
+pub mod scope;
 mod uia;
 
 #[cfg(feature = "selftest")]
 pub mod testwin;
 
 pub use pipeline::{Faults, Recorder, RecorderConfig, RecorderReport, RecorderStatus};
+pub use scope::Scope;
 
 /// Test-only access to internals the self-test checks against real files.
 #[cfg(feature = "selftest")]
@@ -39,4 +42,5 @@ pub mod testing {
     pub use crate::frame::Frame;
     pub use crate::hooks::stats as hook_stats;
     pub use crate::monitors::{enumerate as monitors, make_thread_dpi_aware, per_monitor_dpi_aware, Monitor};
+    pub use crate::scope::window_bounds;
 }

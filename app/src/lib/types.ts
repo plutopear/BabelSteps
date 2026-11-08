@@ -73,6 +73,14 @@ export interface OpenedRecording {
   recording: Recording;
 }
 
+/** Export options (PSR-2, PSR-6). Both are off by default. */
+export interface ExportChoices {
+  stepTimes: boolean;
+  technicalDetails: boolean;
+  /** Minutes east of UTC when the recording was made. */
+  utcOffsetMinutes: number;
+}
+
 export interface ExportSummary {
   steps: number;
   imagesWritten: number;
@@ -115,6 +123,20 @@ export interface RecordingStatus {
   startRequests: number;
   notice: string | null;
   hotkeys: HotkeyInfo[];
+  /** What the running recording covers (A6). Label is a monitor name or an app name, never a window title. */
+  scope: { kind: "screen" | "monitor" | "window"; label: string };
+}
+
+/** What to record (A6, Q13). The whole screen is the default. */
+export type CaptureTarget =
+  | { kind: "screen" }
+  | { kind: "monitor"; device: string }
+  | { kind: "window"; id: number };
+
+export interface CaptureTargets {
+  monitors: { device: string; label: string }[];
+  /** Labels hold window titles: shown in the picker only, never stored or logged. */
+  windows: { id: number; label: string }[];
 }
 
 export interface Settings {
@@ -125,4 +147,6 @@ export interface Settings {
   hotkeys: { startStop: string; pause: string; note: string; stop: string };
   /** Closing the window keeps BabelSteps running in the tray (default false: closing quits). */
   closeToTray: boolean;
+  /** A3: name the full window title in click steps. Off by default for privacy. */
+  showWindowTitles: boolean;
 }

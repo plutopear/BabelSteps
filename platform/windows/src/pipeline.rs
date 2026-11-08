@@ -23,6 +23,7 @@ use crate::hotkeys::Hotkey;
 use crate::keys::KeyTracker;
 use crate::monitors;
 use crate::scan::{self, PasswordMemory, WinState};
+use crate::scope::{self, Scope};
 use crate::uia::{ElementInfo, UiaFaults, UiaPool, UiaStats};
 use anyhow::{bail, Result};
 use babelsteps_core::normalize::{Event, Key, Mods, Normalizer, NormalizerConfig};
@@ -38,7 +39,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL};
-use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetAncestor, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT,
+};
 
 /// Bytes of frames allowed between capture and disk at once: 6 frames of a
 /// 5120x1440 screen, 24 of a 1920x1080 one. Capture never waits for room: a
@@ -86,6 +89,12 @@ pub struct RecorderConfig {
     /// Clicks on taskbar elements whose name starts with this are never
     /// recorded (the tray icon in the hidden-icons flyout, named after its tooltip).
     pub ignore_shell_elements_named: Option<String>,
+    /// A6: the whole screen (default), one monitor, or one window. Input
+    /// outside it is not recorded, and window screenshots are cut to the window.
+    pub scope: Scope,
+    /// A3 opt-in, off by default: read the window title and name it in click
+    /// steps. When off, no title is read at all.
+    pub show_window_titles: bool,
 }
 
 impl Default for RecorderConfig {
@@ -98,6 +107,8 @@ impl Default for RecorderConfig {
             ignore_keys: Vec::new(),
             ignore_areas: None,
             ignore_shell_elements_named: None,
+            scope: Scope::Screen,
+            show_window_titles: false,
         }
     }
 }
@@ -110,6 +121,7 @@ struct CaptureOpts {
     ignore_own_windows: bool,
     ignore_keys: Vec<Hotkey>,
     ignore_areas: Option<Arc<Mutex<Vec<Rect>>>>,
+    scope: Scope,
 }
 
 /// Fault injection for the self-test. Inert unless something sets it.
@@ -150,6 +162,8 @@ pub struct RecorderStatus {
     /// Continuous capture is running, so screenshots can show the state before each action.
     pub before_state_available: bool,
     pub uia: UiaStats,
+    /// Set when the chosen window has closed or the chosen monitor is gone.
+    pub scope_lost: Option<String>,
     /// Things the user should know, such as "screenshots withheld: a window could not be checked".
     pub warnings: Vec<String>,
 }
@@ -161,6 +175,9 @@ pub struct RecorderReport {
     pub hooks: HookStats,
     pub write_errors: Vec<String>,
     pub elapsed: Duration,
+    /// Clicks and key presses lost during this recording because the hook
+    /// queue was full (PSR-5 "missed"). `hooks.dropped` counts since the app started.
+    pub missed_inputs: u64,
 }
 
 enum Control {
@@ -212,6 +229,8 @@ pub struct Recorder {
     analysis: Option<JoinHandle<Recording>>,
     writer_done: Receiver<(Bundle, Vec<String>)>,
     started: Instant,
+    /// `hooks::stats().dropped` when this recording started.
+    dropped_at_start: u64,
 }
 
 impl Recorder {
@@ -223,6 +242,7 @@ impl Recorder {
             // boxes would miss the password fields.
             bail!("recording needs per-monitor DPI awareness, which this process does not have");
         }
+        scope::validate(&config.scope, config.ignore_own_windows)?;
         let faults = Arc::new(Faults::default());
         let status = Arc::new(Mutex::new(RecorderStatus::default()));
         let in_flight = Arc::new(AtomicUsize::new(0));
@@ -238,6 +258,7 @@ impl Recorder {
             ignore_own_windows: config.ignore_own_windows,
             ignore_keys: config.ignore_keys.clone(),
             ignore_areas: config.ignore_areas.clone(),
+            scope: config.scope.clone(),
         };
         let (cap_tx, cap_rx) = unbounded::<Captured>();
         let analysis = {
@@ -253,6 +274,7 @@ impl Recorder {
         };
         drop(write_tx);
 
+        let dropped_at_start = hooks::stats().dropped;
         let (hook_handle, raw_rx) = match hooks::start() {
             Ok(h) => h,
             Err(e) => {
@@ -278,6 +300,7 @@ impl Recorder {
             analysis: Some(analysis),
             writer_done: done_rx,
             started: Instant::now(),
+            dropped_at_start,
         })
     }
 
@@ -326,10 +349,12 @@ impl Recorder {
             .writer_done
             .recv_timeout(Duration::from_secs(120))
             .map_err(|_| anyhow::anyhow!("the image writer did not finish"))?;
+        let hook_stats = hooks::stats();
         let report = RecorderReport {
             recording,
             status: self.status(),
-            hooks: hooks::stats(),
+            missed_inputs: hook_stats.dropped.saturating_sub(self.dropped_at_start),
+            hooks: hook_stats,
             write_errors,
             elapsed: self.started.elapsed(),
         };
@@ -365,6 +390,19 @@ fn root_at(x: i32, y: i32) -> isize {
     unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) }.0 as isize
 }
 
+/// Caption of a top-level window, `None` when it has none. For another
+/// process's window this reads the stored caption without sending it a
+/// message, so a hung app cannot stall analysis.
+fn window_title(hwnd: isize) -> Option<String> {
+    if hwnd == 0 {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    let n = unsafe { GetWindowTextW(HWND(hwnd as *mut _), &mut buf) };
+    let t = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+    (!t.trim().is_empty()).then_some(t)
+}
+
 fn foreground_is_own() -> bool {
     window_pid(unsafe { GetForegroundWindow() }) == own_pid()
 }
@@ -395,7 +433,7 @@ fn capture_loop(
     let over_budget = Arc::new(AtomicU64::new(0));
     let over = over_budget.clone();
     let budget = in_flight.clone();
-    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64| -> Option<Shot> {
+    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64, keep: Option<Vec<Rect>>| -> Option<Shot> {
         let mons = capturer.monitors();
         let bytes = monitors::index_for(mons, x, y).map_or(0, |i| mons[i].w.max(0) as usize * mons[i].h.max(0) as usize * 4);
         if budget.load(Ordering::SeqCst) + bytes > FRAME_BUDGET_BYTES {
@@ -407,6 +445,21 @@ fn capture_loop(
         let ticket = Ticket(budget.clone(), bytes);
         match capturer.grab(x, y, t) {
             Ok(Grabbed { frame, before_verified }) => {
+                // One window (A6): cut the frame down before anything else
+                // sees it, so the scan and the writer only get the window.
+                let frame = match keep {
+                    Some(areas) => {
+                        // No area (the window vanished): the step has no picture.
+                        let first = *areas.first()?;
+                        let bbox = areas.iter().fold(first, |a, r| a.union(r));
+                        let mut f = frame.crop(&bbox)?;
+                        if areas.len() > 1 {
+                            f.keep_only(&areas);
+                        }
+                        f
+                    }
+                    None => frame,
+                };
                 // The windows on screen now, a few ms after the input, which is
                 // as close to the frame as can be had.
                 let area = frame_area(&frame);
@@ -425,6 +478,8 @@ fn capture_loop(
                 h.check_alive();
             }
             publish_capture(&status, &capturer, &in_flight, &over_budget);
+            let lost = scope::lost(&opts.scope, capturer.monitors()).map(str::to_string);
+            status.lock().unwrap_or_else(|e| e.into_inner()).scope_lost = lost;
         }
         if let Some(ev) = held.take() {
             handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
@@ -483,7 +538,7 @@ fn handle_raw(
     keys: &mut KeyTracker,
     last_was_text: &mut bool,
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Vec<Rect>>) -> Option<Shot>,
     out: &Sender<Captured>,
 ) {
     match ev {
@@ -495,8 +550,27 @@ fn handle_raw(
             if (opts.only_injected && !injected) || paused || in_ignored_area || (opts.ignore_own_windows && is_own_window_at(x, y)) {
                 return;
             }
+            let crop = match &opts.scope {
+                Scope::Screen => None,
+                Scope::Monitor(device) => {
+                    let mons = capturer.monitors();
+                    if !monitors::index_for(mons, x, y).is_some_and(|i| &mons[i].device_name() == device) {
+                        *last_was_text = false;
+                        return; // On another monitor: not recorded.
+                    }
+                    None
+                }
+                Scope::Window(target) => {
+                    let root = root_at(x, y);
+                    if !scope::window_in_scope(root, *target) {
+                        *last_was_text = false;
+                        return; // On another window: not recorded.
+                    }
+                    Some(scope::keep_areas(*target, Some(root)))
+                }
+            };
             *last_was_text = false;
-            let shot = grab(capturer, x, y, t);
+            let shot = grab(capturer, x, y, t, crop);
             let _ = out.send(Captured::Click { button, x, y, t, shot });
         }
         RawEvent::KeyUp { vk, scan, injected, .. } => {
@@ -516,6 +590,26 @@ fn handle_raw(
             if is_hotkey || paused || (opts.ignore_own_windows && foreground_is_own()) {
                 return;
             }
+            let crop = match &opts.scope {
+                Scope::Screen => None,
+                Scope::Monitor(device) => {
+                    let mons = capturer.monitors();
+                    let on = focus_point(mons).and_then(|(x, y)| monitors::index_for(mons, x, y)).is_some_and(|i| &mons[i].device_name() == device);
+                    if !on {
+                        *last_was_text = false; // Back in scope, the first key gets a frame.
+                        return;
+                    }
+                    None
+                }
+                Scope::Window(target) => {
+                    let fg = unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) }.0 as isize;
+                    if !scope::window_in_scope(fg, *target) {
+                        *last_was_text = false;
+                        return; // Typed into another window: not recorded.
+                    }
+                    Some(scope::keep_areas(*target, Some(fg)))
+                }
+            };
             let shortcut = mods.ctrl || mods.alt || mods.meta;
             let is_text = matches!(key, Key::Text(_)) && !shortcut;
             // A frame only for keys that can start a step: the first key of a run
@@ -529,7 +623,7 @@ fn handle_raw(
                 opts.keystrokes_enabled && !matches!(key, Key::Backspace)
             };
             *last_was_text = is_text;
-            let shot = if wants_frame { grab_focus(capturer, grab, t) } else { None };
+            let shot = if wants_frame { grab_focus(capturer, grab, t, crop) } else { None };
             let _ = out.send(Captured::Key { key, mods, t, shot });
         }
         RawEvent::Foreground { hwnd, t } => {
@@ -547,9 +641,18 @@ fn handle_raw(
 /// The frame for a key press: the monitor holding the foreground window.
 fn grab_focus(
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Vec<Rect>>) -> Option<Shot>,
     t: i64,
+    keep: Option<Vec<Rect>>,
 ) -> Option<Shot> {
+    let point = focus_point(capturer.monitors())?;
+    grab(capturer, point.0, point.1, t, keep)
+}
+
+/// A point on the monitor that holds the foreground window: its centre, or,
+/// when the centre is off-screen, the centre of its part on the monitor it
+/// overlaps most. `None` if it is on no monitor.
+fn focus_point(monitors: &[monitors::Monitor]) -> Option<(i32, i32)> {
     let mut r = windows::Win32::Foundation::RECT::default();
     let fg = unsafe { GetForegroundWindow() };
     if unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowRect(fg, &mut r) }.is_err() {
@@ -557,14 +660,16 @@ fn grab_focus(
     }
     let cx = ((i64::from(r.left) + i64::from(r.right)) / 2) as i32;
     let cy = ((i64::from(r.top) + i64::from(r.bottom)) / 2) as i32;
-    let mons: Vec<_> = capturer.monitors().iter().copied().filter(|m| m.w > 0 && m.h > 0).collect();
-    let point = if monitors::index_for(&mons, cx, cy).is_some() {
-        (cx, cy)
-    } else {
-        // Centre off-screen (window partly outside): use its top-left, clamped.
-        mons.first().map(|m| (r.left.clamp(m.x, m.x + m.w - 1), r.top.clamp(m.y, m.y + m.h - 1)))?
-    };
-    grab(capturer, point.0, point.1, t)
+    let mons: Vec<_> = monitors.iter().copied().filter(|m| m.w > 0 && m.h > 0).collect();
+    if monitors::index_for(&mons, cx, cy).is_some() {
+        return Some((cx, cy));
+    }
+    let win = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+    let part = mons
+        .iter()
+        .filter_map(|m| win.intersect(&Rect { x: m.x, y: m.y, w: m.w, h: m.h }))
+        .max_by_key(|p| i64::from(p.w) * i64::from(p.h))?;
+    Some((part.x + part.w / 2, part.y + part.h / 2))
 }
 
 struct KeyScan {
@@ -578,6 +683,7 @@ const SHELL_PROCESSES: [&str; 3] = ["explorer", "ShellExperienceHost", "ShellHos
 
 struct Analysis {
     ignore_shell_named: Option<String>,
+    show_window_titles: bool,
     norm: Normalizer,
     recording: Recording,
     uia: UiaPool,
@@ -625,7 +731,12 @@ impl Analysis {
         let start_unix_ms = clock::unix_ms();
         Analysis {
             ignore_shell_named: config.ignore_shell_elements_named.clone(),
-            norm: Normalizer::new(NormalizerConfig { keystrokes_enabled: config.keystrokes_enabled, custom: config.custom }),
+            show_window_titles: config.show_window_titles,
+            norm: Normalizer::new(NormalizerConfig {
+                keystrokes_enabled: config.keystrokes_enabled,
+                custom: config.custom,
+                show_window_titles: config.show_window_titles,
+            }),
             recording,
             uia: UiaPool::new(faults.uia.clone()),
             memory: PasswordMemory::default(),
@@ -858,7 +969,9 @@ impl Analysis {
             }
             _ => None, // Dropped here: a withheld frame is never written.
         };
-        let target = element.as_ref().map(to_target);
+        // Read now, next to the element lookup above, so both describe the same moment.
+        let window_title = self.show_window_titles.then(|| window_title(root_at(x, y))).flatten();
+        let target = element.as_ref().map(|e| to_target(e, window_title));
         let event = Event::Click { t_ms: self.unix_ms(t), button, x, y, target, signals, screenshot };
         let mut blocks = self.norm.push(event);
         if !had_frame {
@@ -899,7 +1012,8 @@ impl Analysis {
             }
             _ => None,
         };
-        let target = focused.as_ref().map(to_target);
+        // Typing steps never name the window (A3 covers clicks), so no title is read.
+        let target = focused.as_ref().map(|f| to_target(f, None));
         let event = Event::Key { t_ms: self.unix_ms(t), key, mods, target, signals, screenshot };
         let blocks = self.norm.push(event);
         self.emit(blocks);
@@ -981,6 +1095,9 @@ impl Analysis {
         st.last_scan_windows = self.timing.scan_windows;
         st.last_scan_hidden = self.timing.scan_hidden;
         let mut warnings = Vec::new();
+        if let Some(lost) = &st.scope_lost {
+            warnings.push(lost.clone());
+        }
         if st.frames_over_budget > 0 {
             warnings.push(format!("{} screenshot(s) skipped: the computer could not keep up", st.frames_over_budget));
         }
@@ -1013,12 +1130,13 @@ fn reported_bounds(infos: &[Option<&ElementInfo>]) -> Vec<Rect> {
     infos.iter().flatten().filter(|i| i.is_password == Some(true)).filter_map(|i| i.bounds).collect()
 }
 
-fn to_target(e: &ElementInfo) -> Target {
+/// `window_title` is `None` unless the user opted in (A3): titles can hold
+/// document names and other private text.
+fn to_target(e: &ElementInfo, window_title: Option<String>) -> Target {
     Target {
         name: e.name.clone(),
         control_type: e.control_type.clone(),
-        // A3: never the window title; it can hold document names and other private text.
-        window_title: None,
+        window_title,
         process_name: e.process_name.clone(),
         // The normalizer also marks the target from the signals, unknowns included.
         is_password: e.is_password == Some(true),

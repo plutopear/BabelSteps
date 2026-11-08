@@ -7,6 +7,9 @@
 //! document structure (`# `, `- `, `1. `, `> `, ...) is backslash-guarded.
 //! `markdown_import` reverses this for the round trip.
 
+use crate::export_options::{
+    recorded_on_line, step_time, technical_details, ExportOptions, DETAILS_HEADING, DETAILS_STEPS_HEADING, TIME_PREFIX,
+};
 use crate::model::{Block, Recording};
 
 /// Escape characters that would be interpreted as Markdown inline syntax.
@@ -161,7 +164,17 @@ fn is_empty_block(b: &Block) -> bool {
 }
 
 pub fn to_markdown(rec: &Recording) -> String {
+    to_markdown_with(rec, &ExportOptions::default())
+}
+
+/// Markdown with the export options applied (step times, technical details).
+pub fn to_markdown_with(rec: &Recording, opts: &ExportOptions) -> String {
     let mut out = format!("# {}\n", plain(&rec.title)).replace("# \n", "#\n");
+    if let Some(line) = recorded_on_line(rec, opts) {
+        out.push('\n');
+        out.push_str(&guard_line(&escape_inline(&line)));
+        out.push('\n');
+    }
 
     let mut step_no = 0usize;
     for (i, block) in rec.blocks.iter().enumerate() {
@@ -174,6 +187,10 @@ pub fn to_markdown(rec: &Recording) -> String {
             Block::Step(step) => {
                 step_no += 1;
                 let mut parts = vec![format!("## Step {step_no}. {}", plain(&step.title)).trim_end().to_string()];
+                if let Some(t) = step_time(rec, step, opts) {
+                    // Markdown import recognises and drops this line (`is_step_time_line`).
+                    parts.push(format!("*{TIME_PREFIX}{t}*"));
+                }
                 let desc = paragraph(&step.description);
                 let has_desc = !desc.is_empty();
                 if has_desc {
@@ -232,6 +249,18 @@ pub fn to_markdown(rec: &Recording) -> String {
             out.push('\n');
             out.push_str(&r);
             out.push('\n');
+        }
+    }
+    if let Some(d) = technical_details(rec, opts) {
+        out.push_str(&format!("\n## {DETAILS_HEADING}\n\n"));
+        for (label, value) in &d.facts {
+            out.push_str(&format!("- {label}: {}\n", escape_inline(value).trim()));
+        }
+        if !d.steps.is_empty() {
+            out.push_str(&format!("\n### {DETAILS_STEPS_HEADING}\n\n"));
+            for (n, line) in &d.steps {
+                out.push_str(&format!("- Step {n}: {}\n", escape_inline(line).trim()));
+            }
         }
     }
     out
@@ -432,14 +461,43 @@ The *final* dialog
             process_name: "notepad.EXE".into(),
             ..Default::default()
         };
-        let d = describe_click(MouseButton::Left, 1, 2, Some(&t));
+        let d = describe_click(MouseButton::Left, 1, 2, Some(&t), false);
         assert_eq!(d, "Left-click \"Save\" button in notepad");
         assert!(!d.contains("Secret"));
         // Title present but no process name: no app part at all.
         let t2 = Target { window_title: Some("Secret".into()), ..Target { name: "Save".into(), ..Default::default() } };
-        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t2)), "Left-click \"Save\"");
-        assert_eq!(describe_click(MouseButton::Right, 5, 6, None), "Right-click at (5, 6)");
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t2), false), "Left-click \"Save\"");
+        assert_eq!(describe_click(MouseButton::Right, 5, 6, None, false), "Right-click at (5, 6)");
         let unnamed = Target { control_type: "Pane".into(), ..Default::default() };
-        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&unnamed)), "Left-click pane at (5, 6)");
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&unnamed), false), "Left-click pane at (5, 6)");
+    }
+
+    #[test]
+    fn click_descriptions_name_the_window_only_with_the_opt_in() {
+        let t = Target {
+            name: "Save".into(),
+            control_type: "Button".into(),
+            window_title: Some("Secret plans - Notepad".into()),
+            process_name: "notepad.EXE".into(),
+            ..Default::default()
+        };
+        // Off: exactly the default wording, title or not.
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t), false), "Left-click \"Save\" button in notepad");
+        // On: the window, without repeating an app the title already names.
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t), true), "Left-click \"Save\" button in \"Secret plans - Notepad\"");
+        // On, and the title does not name the app: the app follows in brackets.
+        let ex = Target { window_title: Some("Downloads".into()), process_name: "explorer.exe".into(), ..t.clone() };
+        assert_eq!(describe_click(MouseButton::Right, 1, 2, Some(&ex), true), "Right-click \"Save\" button in \"Downloads\" (explorer)");
+        // On, but no title was read (or it was blank): the app name, as before.
+        for blank in [None, Some("   ".to_string())] {
+            let nt = Target { window_title: blank, ..t.clone() };
+            assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&nt), true), "Left-click \"Save\" button in notepad");
+        }
+        // On, unnamed element: coordinates plus the window.
+        let pane = Target { name: String::new(), control_type: "Title bar".into(), ..t.clone() };
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&pane), true), "Left-click title bar at (5, 6) in \"Secret plans - Notepad\"");
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&pane), false), "Left-click title bar at (5, 6)");
+        // No target: nothing to name.
+        assert_eq!(describe_click(MouseButton::Middle, 5, 6, None, true), "Middle-click at (5, 6)");
     }
 }

@@ -13,6 +13,7 @@ Read the section you need, not the whole file. Start a session with the `babelst
 | Need | Look in |
 | --- | --- |
 | Current milestone, next tasks | `docs/05-roadmap.md` |
+| Exit criteria for each milestone | `docs/07-definition-of-done.md` |
 | Decisions already made, open questions | `docs/06-open-questions.md` (do not re-ask what is answered) |
 | What to build, with IDs like A2, B12, D6 | `docs/02-requirements.md` |
 | Design, threads, data model | `docs/03-architecture.md` |
@@ -21,6 +22,7 @@ Read the section you need, not the whole file. Start a session with the `babelst
 | Steps Recorder facts, code signing options | `research/baseline-and-competitors.md` |
 | Document model, Markdown export | `core/` (shipping code) |
 | Windows experiments | `spikes/win-capture/` (throwaway: reference it, do not ship it) |
+| Automatic privacy checks, CI | `checks/` (scans run by `cargo test`), `scripts/ci/`, `.github/workflows/ci.yml`; coverage in `docs/04-privacy-and-security.md` section 8 |
 
 ## Rules from what M0 proved
 
@@ -89,4 +91,4 @@ Install tools with winget when a package exists; installs the work needs are alr
 
 ## Git
 
-Work on a branch, not `main`. Commit finished work. There is no remote yet. Merge to `main` only when the owner asks.
+Work on a branch, not `main`. Commit finished work. The remote is `plutopear/BabelSteps` on GitHub; changes reach `main` through pull requests. Merge to `main` only when the owner asks.

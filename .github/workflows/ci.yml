@@ -1,0 +1,62 @@
+# Privacy and test checks (docs/07-definition-of-done.md, row 3.4).
+# Runs on every pull request and every push to main. Nothing here uploads
+# recordings or results anywhere; the jobs only build and test the code.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows - tests, golden files, no-network check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build the frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+      # Unit tests, the golden-file export tests, and the privacy scans in checks/.
+      - name: Tests
+        run: cargo test --workspace --locked
+      # Networking crates, Tauri plugins, tokio's net feature, capabilities.
+      - name: No-network dependency check
+        shell: powershell
+        run: powershell -NoProfile -File .claude/skills/babelsteps-check/scripts/no-network.ps1
+
+  linux-runtime:
+    name: Linux - runtime socket test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install -y strace
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Runtime socket test
+        run: scripts/ci/no-socket-at-runtime.sh

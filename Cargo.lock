@@ -124,6 +124,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "babelsteps-privacy-checks"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "babelsteps-windows"
 version = "0.0.1"
 dependencies = [

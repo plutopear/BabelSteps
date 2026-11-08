@@ -4,7 +4,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Rules.** Pass means a recorded test on the real desktop shows it. Code without a test is "not tested". Unit tests alone, for behavior that depends on the real desktop, are "partial". Live results from before the 2026-11-08 hotkey and close-path changes count as partial until re-run on the current build.
 
-**Where it stands (2026-11-08, end of session):** Pass 2, Partial 21, Not tested 2, Not built 3, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), something built, hardware the owner may not have (a second monitor), or an owner decision.
+**Where it stands (2026-11-08, end of session):** Pass 2, Partial 21, Built but app not tested 4, Not tested 2, Owner decision 2, Out of scope (M1) 1 (of 32). M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), something built, hardware the owner may not have (a second monitor), or an owner decision.
 
 **Close to the tray, 2026-11-08 (Q21; 24 of 24, plus a quick 4 of 4 on the final build; `research/m1-results.md`):** D1 is met in tray mode, at 6 MB and 0.3% of one core with the window closed. D3 was measured warm only, at 0.66 to 0.81 s to the window. The start, note and stop shortcuts work with no window. The window is rebuilt hardened, and it stays hidden until the hardening is confirmed.
 
@@ -22,13 +22,13 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
-**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1), and three minor ones: a per-step time in exports (PSR-2), a "typed text was not recorded" notice (PSR-3), step counts in the document (PSR-5). A6 is decided (Q13) but not built.
+**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-7 (command-line control in v1). PSR-2, PSR-3, PSR-5 and PSR-6 were decided on 2026-11-08 (Q25, Q30) and are built on branch `claude/project-thread-164l6e` (core unit tests and the Windows build pass; not yet checked by hand in the app). A6 is decided (Q13) and built on 2026-11-08; its self-test checks passed on Windows.
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
 **Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, passed on 2026-11-08 (67 of 67, `research/m1-results.md`): typing with keystrokes off, step titles without the window title, the outline and the click marker, on our own test window. That moves the self-test half of A2, A3 and A11 forward; real apps are still untested. Known gap: taskbar buttons and caption text in newer title bars.
 
-**Claude can build without the owner:** the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
+**Claude can build without the owner:** the opt-in full window title (A3). The window-or-monitor choice (A6, Q13) was built on 2026-11-08 and passed its self-test checks on Windows.
 
 ## Summary
 
@@ -39,7 +39,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | A3 | Write a step title per click from the element's name and type plus the app name (not the window title). Right and middle clicks use the same wording. Showing the full title is an opt-in. Fall back to coordinates when there is no name. | Partial |
 | A4 | Add a comment at any point during a recording, by hotkey or from the app. | Partial |
 | A5 | Pause and resume without ending the recording. | Partial |
-| A6 | Record the full screen, or a chosen window or monitor. | Not built |
+| A6 | Record the full screen, or a chosen window or monitor. | Partial |
 | A7 | Recording works correctly on several monitors and with mixed display scaling (DPI). | Partial |
 | A8 | Screenshot retention is configurable. Ours defaults to unlimited with a size warning (Q12), where Steps Recorder keeps the last 25. | Partial |
 | A9 | Output one self-contained file that opens without the app (format under Q2: our own format, no .mht). | Owner decision |
@@ -57,11 +57,11 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | D6 | A screenshot is ready within 150 ms of a click and shows the screen just before the click. This is a deliberate difference from Steps Recorder, which shows the screen after the click (Q3). | Partial |
 | D7 | Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions. | Partial |
 | PSR-1 | Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling). | Partial |
-| PSR-2 | Each step has a number and a timestamp. | Partial |
-| PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Not built |
+| PSR-2 | Each step has a number and a timestamp. | Built, app not tested |
+| PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Built, app not tested |
 | PSR-4 | Function keys, modifier keys and shortcuts are shown even when typed text is not. | Partial |
-| PSR-5 | The document states how many steps were recorded and how many were missed or had errors. | Not built |
-| PSR-6 | An additional-details section lists the operating system, program and UI elements per step. | Owner decision |
+| PSR-5 | The document states how many steps were recorded and how many were missed or had errors. | Built, app not tested |
+| PSR-6 | An additional-details section lists the operating system, program and UI elements per step. | Built, app not tested |
 | PSR-7 | Command-line control: start and stop from a script, set the output path and screenshot limit, hide the UI, limit to one process. | Owner decision |
 | PSR-8 | Clicks in elevated (admin) windows and on UAC prompts: what gets recorded, and whether password detection fails closed when UI Automation is denied. | Not tested |
 | PSR-9 | Clicks on the recorder's own controls (window, tray icon, menus, hotkeys) are left out of the recording. | Partial |
@@ -91,7 +91,8 @@ Write a step title per click from the element's name and type plus the app name 
 
 - **Steps Recorder:** User left click on "Save (button)" in "Window title", and the same form for right click. Always uses the full window title.
 - **Evidence:** Unit test core/src/markdown.rs click_descriptions_use_app_name_never_window_title (app name and no window title; 'Right-click at (5, 6)'; coordinates fallback). Function core/src/model.rs describe_click. Hooks map WM_RBUTTONDOWN and WM_MBUTTONDOWN (platform/windows/src/hooks.rs lines 112-113). Live: m1-results 'First live test (2026-11-07)', on-disk row 'no window titles'. browser_selftest locates steps by their titles. M0: UI Automation names read in real apps (m0-spike-results 'UI Automation in real apps').
-- **Gap:** The opt-in to show the full window title is not built: pipeline.rs line 1016 sets window_title: None, and core/src/settings.rs has no such setting. No live check asserts the exact title for a named element, the coordinates fallback, or right or middle clicks (a context menu opens on press, so the before-click picture matters most there). Elevated windows, where names may be unreadable, are untested. To close: add self-test checks on our test window for a named left click, a right click and an unnamed area, and decide whether the opt-in ships in M1.
+- **Opt-in built 2026-11-08 (branch claude/project-thread-axy1rr):** Settings, Step names, "Show full window titles in steps", off by default. With it on, click steps read `Left-click "Save" button in "Untitled - Notepad"`, with the app in brackets when the title does not name it. Unit tests: core/src/markdown.rs click_descriptions_name_the_window_only_with_the_opt_in, core/src/normalize.rs window_titles_are_dropped_unless_opted_in opted_in_window_titles_are_scrubbed and opted_in_window_titles_fail_closed_near_passwords_and_skip_typing (no title near password signals or on typing steps). New self-test check window_title_opt_in, not yet run on Windows.
+- **Gap:** No live check asserts the exact title for a named element, the coordinates fallback, or right or middle clicks (a context menu opens on press, so the before-click picture matters most there). Elevated windows, where names may be unreadable, are untested. To close: add self-test checks on our test window for a named left click, a right click and an unnamed area, and decide whether the opt-in ships in M1.
 
 ### A4: Partial
 
@@ -109,13 +110,14 @@ Pause and resume without ending the recording.
 - **Evidence:** capture_selftest checks 'pause: clicks while paused are not recorded' and 'pause: no image from a paused click is on disk' (m1-results 'Recording engine self-test'; 55/55 run). Live app: m1-results 'First live test (2026-11-07)', row 'Ctrl+Alt+Shift+P pauses and resumes; a click while paused is not recorded' Pass. 'Tray test (2026-11-07)': tray menu Pause/Resume worked (state log); the owner saw the amber icon. Unit tests core/src/normalize.rs nothing_typed_while_paused_reaches_a_step, pause_flushes_the_current_run_first.
 - **Gap:** Downgraded from pass. The live app evidence predates the hotkey and recording.rs changes (commits 984c562, e40609d). Pausing from the panel button is not separately recorded. Typing while paused is covered only by unit tests: every live pause case used keystrokes off and only clicks. Steps Recorder's pause behavior is unverified. To close: the owner-approved live run of the current release exe.
 
-### A6: Not built
+### A6: Partial
 
 Record the full screen, or a chosen window or monitor.
 
 - **Steps Recorder:** Every step image was the full monitor at native resolution. Unverified whether its UI can limit capture to one window; second-monitor behavior unverified.
 - **Evidence:** The full-screen default works: capture_selftest images are full monitor frames (m1-results 'Recording engine self-test'). Q13 (docs/06-open-questions.md): full screen by default, with a choice of window or monitor. No scope option exists: grep for scope or window/monitor choice in core/src/settings.rs, app/src/lib/*.svelte and app/src-tauri/src/recording.rs found nothing.
-- **Gap:** Changed from partial to not-built, because the part that makes this requirement (choosing a window or monitor) does not exist. Needs building, then a self-test that also checks that redaction and the outline stay correct when the capture is cropped. Choosing a monitor needs multi-monitor hardware to test (Q20).
+- **Built (2026-11-08):** the Record dialog offers "The whole screen" (default), each monitor when there is more than one, and each open window. Hotkey starts record the whole screen. Clicks and typing outside the choice are not recorded. A window's screenshots are cut to the window (plus the menu or dialog clicked, with the gap between them painted grey) before the password scan. Code: `platform/windows/src/scope.rs`, `pipeline.rs` `handle_raw`, `Frame::crop` and `keep_only`. New self-test `scopes` (8 checks, one skipped on a single monitor): the window cut holds the test window's client area and is not much bigger, the password field is black and the user name field is not in the cut images, the click marker lands on the click, a click on another window makes no step, a monitor choice gives full-monitor images, a click outside a chosen monitor makes no step (needs a second monitor), and a disconnected monitor is refused. Unit tests: `Rect::intersect`/`union` (core), `Frame::crop`, `Frame::keep_only`. A privacy review on 2026-11-08 found that a File Explorer target let desktop and taskbar clicks in with a whole-monitor cut; fixed before the first run. First Windows run (2026-11-08, one 5120x1440 monitor at 100%): all 7 scope checks passed (the window cut was exactly the window's 506x293; the second-monitor control was skipped). The run as a whole was 70 of 74: the remapped-hotkey check recorded one shortcut step that should have been ignored, and the three retention checks that expect exactly five screenshots failed with it. That code is unchanged by A6. Main then passed 67 of 67, and two more runs of the A6 branch passed 74 of 74 each, so it was most likely a one-off timing glitch; it is not ruled out as a rare bug, and the log gave only counts, not which shortcut slipped through.
+- **Gap:** The out-of-scope monitor case needs a second monitor (Q20). Windows lying on top of the chosen window still show inside its cut. A window spanning two monitors is cut to the part on the clicked monitor. A second window of the same app with no title bar counts as part of the chosen window (the rule that lets its menus and drop-downs in). Real apps (Edge, Office, store apps) are untested.
 
 ### A7: Partial
 
@@ -253,21 +255,23 @@ Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a 
 - **Evidence:** Built 2026-11-08 (core/src/screenshot.rs, used by platform/windows/src/frame.rs and pipeline.rs, and by core/src/image_export.rs for exports). Full monitor, full resolution; UI screens are stored as tightly compressed lossless PNG, and screens that are largely photo-like as JPEG quality 85 with full colour resolution. Measured on synthetic 5120x1440 screenshots (research/m1-results.md 'Screenshot size (PSR-1)'): UI screens 2.4 to 4.5 times smaller than before (0.5 to 1.7 MB each), a photo-heavy screen 7 times smaller (10.2 MB to 1.4 MB); an assumed 100-step mix went from 431 MB to 135 MB on disk, and its print-size images (HTML and PDF input) total 56 MB. Unit tests cover the format choice, lossless PNG, no metadata in either format, and redaction in JPEG exports. Target set by the owner on 2026-11-08: a typical 30-step recording under 10 MB. On the owner's PC, WebView2 re-compresses every PDF image itself, so image formats do not change the PDF size (research/m1-results.md 'PDF size is set by WebView2').
 - **Gap:** Not measured on a real recording: the numbers come from Chromium-rendered test pages, and real Windows text (ClearType) may compress worse. Still about 3.5 times Steps Recorder per image, because text is kept pixel-exact; going further means palette PNG or smaller exports, which trade readability. Not tested live: the fastest-PNG fallback when screenshots queue up, the format choice in the capture self-test, and the PDF size. First real recording (8 File Explorer steps at 5120x1440, 2026-11-08): 672 KB per stored screenshot and 0.37 MB of PDF per step, so about 11 MB per 30 steps, just over the 10 MB target (an estimate). The PDF self-test still passes D5 (8.7-9.4 s). The owner chose smaller PDF pictures on 2026-11-08: print images wider than 2000 px are now shrunk to 1600 px (narrower ones are left as they are), expected to give about 7 MB per 30 steps (an estimate, not yet measured on a real recording).
 
-### PSR-2: Partial
+### PSR-2: Built, app not tested
 
 Each step has a number and a timestamp.
 
 - **Steps Recorder:** Each step has a number and timestamp.
 - **Evidence:** Numbers: core/src/normalize.rs steps_keep_their_order_and_get_sequential_ids; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image. Time: StepBlock.captured_unix_ms is stored (core/src/model.rs), but in core/src/markdown.rs, html.rs and export.rs it appears only in test fixtures.
-- **Gap:** Numbering is unit-tested and does not depend on the desktop. The capture time is stored but shown nowhere: not in Markdown, HTML or PDF exports, and not in the app UI. Showing a time per step is not built. Minor product choice whether to show it (time zone and privacy), then a unit test.
+- **Gap:** Numbering is unit-tested and does not depend on the desktop. The capture time is stored but shown nowhere: not in Markdown, HTML or PDF exports, and not in the app UI. Showing a time per step is not built. Decided 2026-11-08 (Q30): always shown in the app, an off-by-default option in exports. Needs building, then a unit test.
+- **Built 2026-11-08:** the editor shows each step's local time; the export dialog option "The time of each step" (off by default) adds `Time: HH:MM:SS` under each step and the date once at the top (core/src/export_options.rs; tests in core/tests/export_options_integration.rs). Times use the UTC offset at the first step, so a recording that crosses a daylight-saving change is off by an hour after it (guess: rare). Markdown import drops the time line.
 
-### PSR-3: Not built
+### PSR-3: Built, app not tested
 
 The output states that typed text and passwords were not recorded (when keystroke capture is off).
 
 - **Steps Recorder:** The file says passwords and any other typed text were not recorded, except function and shortcut keys.
 - **Evidence:** No such notice in core/src/markdown.rs, html.rs or export.rs (grep for 'not recorded' and 'keystroke' found nothing). The panel and tray tooltip show keystrokes on or off while recording (m1-results 'Tray test').
-- **Gap:** Not built. Product choice whether exports carry a keystroke-capture notice. It must state only what was not captured and never claim the export is free of sensitive data (product rule). Then a unit test on the exporters.
+- **Gap:** Not built. Decided 2026-11-08 (Q30): one deletable line in every export by default, worded for keystrokes on or off. It must state only what was not captured and never claim the export is free of sensitive data (product rule). Then a unit test on the exporters.
+- **Built 2026-11-08:** a new recording starts with one ordinary text block, "Typed text was not recorded. Keyboard shortcuts were." or "Typed text was recorded. Review it before sharing." (core/src/notice.rs). The user can edit or delete it and it stays that way; an unedited "not recorded" line becomes "recorded" if a later session records typed text. Older recordings that already have steps get no line.
 
 ### PSR-4: Partial
 
@@ -277,21 +281,23 @@ Function keys, modifier keys and shortcuts are shown even when typed text is not
 - **Evidence:** Unit tests: core/src/normalize.rs named_shortcuts, window_shortcuts_and_general_format, keystrokes_off_emits_only_shortcuts_with_ctrl_alt_or_meta, bare_escape_and_named_keys_are_presses_that_end_the_run; platform/windows/src/keys.rs ctrl_s_is_a_char_with_ctrl, altgr_fake_ctrl_is_not_reported_as_ctrl, named_and_fixed_keys. Live checks cover only that our own hotkeys and F24 make no step (capture_selftest 'hooks: F24 with keystrokes off makes no step', the remapped-hotkey checks, and 0 of 11 in the 2026-11-07 live test).
 - **Gap:** No live test sends an ordinary shortcut (for example Ctrl+S) through the real hooks and checks its step. By design, bare function keys and Enter or Tab make no step when keystrokes are off, unlike Steps Recorder; confirm that difference is acceptable. Dead keys are recorded as the plain letter (known). To close: a capture_selftest case on our test window (usual OK).
 
-### PSR-5: Not built
+### PSR-5: Built, app not tested
 
 The document states how many steps were recorded and how many were missed or had errors.
 
 - **Steps Recorder:** Summary line: 'Recorded Steps: 31, Missed Steps: 0, Other Errors: 0'.
 - **Evidence:** Steps carry screenshot_withheld, and exports leave out withheld images (core/src/markdown.rs withheld_step_never_links_its_image; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image). Pipeline status counts withheld steps and UI Automation timeouts (read by capture_selftest). Grep for a recorded or missed summary in core/src/html.rs and markdown.rs found none.
-- **Gap:** No total of recorded, withheld, or over-budget steps reaches the user or the document. Needs a small build and a unit test. Whether exports show the counts is a minor product choice.
+- **Gap:** No total of recorded, withheld, or over-budget steps reaches the user or the document. Decided 2026-11-08 (Q30): counts shown in the app after every recording, and in exports only inside the optional technical-details section (PSR-6). Needs a small build and a unit test.
+- **Built 2026-11-08:** after every stop the app notice starts with the counts, for example "Recorded 12 steps. 1 screenshot was withheld ... 2 steps have no screenshot. 1 click or key press was missed." Missed inputs come from the hook queue for that session only. Exports show counts only in the technical details.
 
-### PSR-6: Owner decision
+### PSR-6: Built, app not tested
 
 An additional-details section lists the operating system, program and UI elements per step.
 
 - **Steps Recorder:** Fields: Recording Session, Recorded Steps, Operating System, Program, UI Elements.
 - **Evidence:** research/baseline-and-competitors.md section 1, 'Additional details fields'. Q2 (same workflow, own format). A3 names the app rather than the window title, for privacy. No OS or session-details section in core exporters (grep).
 - **Gap:** Not built. It helps IT and helpdesk users (Q5) but adds identifying data to exports (docs/04-privacy-and-security.md). The owner decides whether exports include a technical-details section.
+- **Built 2026-11-08:** export dialog option "A technical details section" (off by default) adds, at the end: recording session start and end, recorded steps, screenshots withheld, steps without a screenshot, Windows version (RtlGetVersion, for example "Windows 11 (build 22631)"), app version, and per step the program and UI element. Window titles, user names and machine names are never included (unit tested).
 
 ### PSR-7: Owner decision
 

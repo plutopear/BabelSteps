@@ -2,16 +2,20 @@
   import { api, describeError, pickFolder, pickSavePath, toAppError } from "./api";
   import { say } from "./announce.svelte";
   import Modal from "./Modal.svelte";
-  import type { ExportSummary } from "./types";
+  import type { ExportChoices, ExportSummary } from "./types";
 
   let {
     title,
+    firstStepMs = 0,
     save,
     onclose,
-  }: { title: string; save: () => Promise<boolean>; onclose: () => void } = $props();
+  }: { title: string; firstStepMs?: number; save: () => Promise<boolean>; onclose: () => void } = $props();
 
   let format = $state<"pdf" | "markdown">("pdf");
   let headerFooter = $state(false);
+  // PSR-2 and PSR-6: both off by default, every time the dialog opens.
+  let stepTimes = $state(false);
+  let technicalDetails = $state(false);
   let c1 = $state(false);
   let c2 = $state(false);
   let c3 = $state(false);
@@ -39,8 +43,14 @@
         error = "The recording could not be saved, so nothing was exported. Fix the save problem shown in the editor and try again.";
         return;
       }
+      // Times use the offset in force when the recording was made (or now, if it has no timed steps).
+      const choices: ExportChoices = {
+        stepTimes,
+        technicalDetails,
+        utcOffsetMinutes: -new Date(firstStepMs || Date.now()).getTimezoneOffset(),
+      };
       const summary =
-        format === "pdf" ? await api.exportPdf(dest, headerFooter) : await api.exportMarkdown(dest);
+        format === "pdf" ? await api.exportPdf(dest, headerFooter, choices) : await api.exportMarkdown(dest, choices);
       result = { summary, where: dest };
       say("Export finished.");
     } catch (e) {
@@ -86,6 +96,18 @@
     {:else}
       <p class="hint">You will choose a folder. It must be empty.</p>
     {/if}
+
+    <fieldset disabled={busy}>
+      <legend>Include</legend>
+      <label class="check">
+        <input type="checkbox" bind:checked={stepTimes} />
+        The time of each step
+      </label>
+      <label class="check">
+        <input type="checkbox" bind:checked={technicalDetails} />
+        A technical details section (step counts, Windows version, and the program and screen element for each step)
+      </label>
+    </fieldset>
 
     <fieldset disabled={busy}>
       <legend>Before you export, confirm you have:</legend>

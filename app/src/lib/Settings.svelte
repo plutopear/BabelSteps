@@ -11,6 +11,7 @@
   let sizeMb = $state(500);
   let border = $state(true);
   let toTray = $state(false);
+  let windowTitles = $state(false);
   const DEFAULT_KEYS = { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" };
   let keys = $state({ ...DEFAULT_KEYS });
   let warnings = $state<string[]>([]);
@@ -44,6 +45,7 @@
       border = s.showCaptureBorder;
       keys = { ...s.hotkeys };
       toTray = s.closeToTray;
+      windowTitles = s.showWindowTitles;
       loaded = true;
     },
     (e) => (error = describeError(e, "reading your settings")),
@@ -63,7 +65,7 @@
     saving = true;
     try {
       warnings = await api.saveSettings({
-        keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys }, closeToTray: toTray,
+        keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys }, closeToTray: toTray, showWindowTitles: windowTitles,
       });
       say("Settings saved.");
       if (warnings.length === 0) onclose();
@@ -113,6 +115,19 @@
       <p class="hint">
         The tray icon always shows when recording is on. Turning the frame off hides only the frame.
         BabelSteps asks Windows to keep the frame out of screenshots.
+      </p>
+    </fieldset>
+    <fieldset>
+      <legend>Step names</legend>
+      <label class="check">
+        <input type="checkbox" bind:checked={windowTitles} disabled={!loaded} />
+        Show full window titles in steps
+      </label>
+      <p class="hint">
+        Off: steps name the app, like <q>Left-click "Save" button in notepad</q>. On: steps name the window,
+        like <q>Left-click "Save" button in "Budget 2026 - Notepad"</q>, and the title is saved in the recording. Window titles
+        often show file names, web page titles and customer names, so check your steps before you share them.
+        Applies to the next recording you start.
       </p>
     </fieldset>
     <fieldset>

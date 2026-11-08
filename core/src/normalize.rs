@@ -24,6 +24,10 @@ pub struct NormalizerConfig {
     /// A11: when false, characters are never buffered at all.
     pub keystrokes_enabled: bool,
     pub custom: CustomRules,
+    /// A3 opt-in, off by default: keep the window title and use it in click
+    /// step titles. When off, any window title a target carries is dropped
+    /// before the step exists, so it reaches neither the title nor the file.
+    pub show_window_titles: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -180,13 +184,25 @@ impl Normalizer {
         match event {
             Event::Click { t_ms, button, x, y, target, signals, screenshot } => {
                 self.flush_run(&mut out);
-                let target = self.scrub_target(target);
-                let title = crate::model::describe_click(button, x, y, target.as_ref());
+                let mut target = self.scrub_target(target);
+                // Fail closed near passwords: a sign-in page's title can name the
+                // account or site, so the title is dropped when any signal says
+                // password or the check could not finish.
+                if !signals.screenshot_allowed() || signals.any_yes() {
+                    if let Some(t) = target.as_mut() {
+                        t.window_title = None;
+                    }
+                }
+                let title = crate::model::describe_click(button, x, y, target.as_ref(), self.config.show_window_titles);
                 let action = Action::Click { button, x, y };
                 self.push_event_step(&mut out, t_ms, action, title, target, &signals, screenshot);
             }
             Event::Key { t_ms, key, mods, target, signals, screenshot } => {
-                let target = self.scrub_target(target);
+                let mut target = self.scrub_target(target);
+                // Typing steps never name the window, so there is no reason to keep its title.
+                if let Some(t) = target.as_mut() {
+                    t.window_title = None;
+                }
                 self.on_key(&mut out, t_ms, key, mods, target, signals, screenshot);
             }
             Event::FocusChanged { .. } => self.flush_run(&mut out),
@@ -214,14 +230,19 @@ impl Normalizer {
     /// A window, title bar, document or pane is named after the window or page
     /// title (a click on empty window space or a title bar, or on a web page's
     /// background, or a tab), so its name is dropped entirely (A3, privacy doc
-/// section 1).
+    /// section 1). That stays so with the window-title opt-in on: the title then
+    /// appears once, as the window, not again as the element.
     fn scrub_target(&self, target: Option<Target>) -> Option<Target> {
         target.map(|mut t| {
             if names_a_title(&t.control_type) {
                 t.name.clear();
             }
             t.name = pii::scrub(&t.name, &self.config.custom);
-            t.window_title = t.window_title.map(|w| pii::scrub(&w, &self.config.custom));
+            t.window_title = if self.config.show_window_titles {
+                t.window_title.map(|w| pii::scrub(&w, &self.config.custom)).filter(|w| !w.trim().is_empty())
+            } else {
+                None
+            };
             t
         })
     }
@@ -557,7 +578,7 @@ mod tests {
     const UNKNOWN: PasswordSignals = PasswordSignals { element: No, window_scan: Unknown, focused: No };
 
     fn normalizer(keystrokes_enabled: bool) -> Normalizer {
-        Normalizer::new(NormalizerConfig { keystrokes_enabled, custom: CustomRules::none() })
+        Normalizer::new(NormalizerConfig { keystrokes_enabled, custom: CustomRules::none(), show_window_titles: false })
     }
 
     fn field(name: &str) -> Option<Target> {
@@ -871,6 +892,86 @@ mod tests {
         assert_absent(&n, &out, "me@example.com");
     }
 
+    fn titled_click(n: &mut Normalizer, title: &str, control_type: &str, name: &str) -> Vec<Block> {
+        let t = Target {
+            name: name.to_string(),
+            control_type: control_type.to_string(),
+            window_title: Some(title.to_string()),
+            process_name: "notepad.exe".to_string(),
+            ..Default::default()
+        };
+        n.push(Event::Click {
+            t_ms: 1,
+            button: crate::model::MouseButton::Left,
+            x: 1,
+            y: 2,
+            target: Some(t),
+            signals: CLEAN,
+            screenshot: None,
+        })
+    }
+
+    #[test]
+    fn window_titles_are_dropped_unless_opted_in() {
+        // Off (the default): a title handed in anyway reaches neither the step
+        // title nor the saved target, and a title-named element loses its name.
+        let mut n = normalizer(true);
+        assert!(!n.config.show_window_titles);
+        let mut out = titled_click(&mut n, "Q4 salaries - Notepad", "Button", "Save");
+        out.extend(titled_click(&mut n, "Q4 salaries - Notepad", "Title bar", "Q4 salaries - Notepad"));
+        assert_eq!(titles(&out), ["Left-click \"Save\" button in notepad", "Left-click title bar at (1, 2)"]);
+        assert_absent(&n, &out, "salaries");
+
+        // On: the title is kept on the target and named in the step.
+        let mut on = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom: CustomRules::none(), show_window_titles: true });
+        let out = titled_click(&mut on, "Q4 salaries - Notepad", "Button", "Save");
+        let step = one(&out);
+        assert_eq!(step.title, "Left-click \"Save\" button in \"Q4 salaries - Notepad\"");
+        assert_eq!(step.target.as_ref().unwrap().window_title.as_deref(), Some("Q4 salaries - Notepad"));
+        // The title bar's own name is still dropped: the title appears once.
+        let out = titled_click(&mut on, "Q4 salaries - Notepad", "Title bar", "Q4 salaries - Notepad");
+        assert_eq!(one(&out).title, "Left-click title bar at (1, 2) in \"Q4 salaries - Notepad\"");
+        assert_eq!(one(&out).target.as_ref().unwrap().name, "");
+    }
+
+    #[test]
+    fn opted_in_window_titles_fail_closed_near_passwords_and_skip_typing() {
+        let mut n = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom: CustomRules::none(), show_window_titles: true });
+        let t = Target {
+            name: "Sign in".to_string(),
+            control_type: "Button".to_string(),
+            window_title: Some("alice account - Notepad".to_string()),
+            process_name: "notepad.exe".to_string(),
+            ..Default::default()
+        };
+        let mut out = Vec::new();
+        for signals in [PW_SCANNED, PW_UNSCANNED, UNKNOWN] {
+            out.extend(n.push(Event::Click {
+                t_ms: 1,
+                button: crate::model::MouseButton::Left,
+                x: 1,
+                y: 2,
+                target: Some(t.clone()),
+                signals,
+                screenshot: None,
+            }));
+        }
+        out.extend(n.push(Event::Key { t_ms: 3, key: Key::Text("x".into()), mods: Mods::default(), target: Some(t.clone()), signals: CLEAN, screenshot: None }));
+        out.extend(n.finish());
+        assert_eq!(steps(&out).len(), 4, "{out:?}");
+        assert_absent(&n, &out, "alice");
+    }
+
+    #[test]
+    fn opted_in_window_titles_are_scrubbed() {
+        let custom = CustomRules::new(["acme"], [] as [&str; 0]).unwrap();
+        let mut n = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom, show_window_titles: true });
+        let out = titled_click(&mut n, "Ticket for me@example.com at Acme - Notepad", "Button", "Save");
+        assert_eq!(one(&out).title, "Left-click \"Save\" button in \"Ticket for [email] at [custom] - Notepad\"");
+        assert_absent(&n, &out, "me@example.com");
+        assert_absent(&n, &out, "Acme");
+    }
+
     #[test]
     fn scrubbed_text_is_all_that_is_kept() {
         let mut n = normalizer(true);
@@ -886,7 +987,7 @@ mod tests {
     #[test]
     fn custom_rules_apply_and_stay_out_of_debug() {
         let custom = CustomRules::new(["acme"], [] as [&str; 0]).unwrap();
-        let mut n = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom });
+        let mut n = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom, show_window_titles: false });
         n.push(text("for acme", CLEAN));
         let out = n.finish();
         assert_eq!(one(&out).action, Action::Text { text: "for [custom]".to_string() });

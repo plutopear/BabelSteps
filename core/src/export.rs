@@ -6,9 +6,10 @@
 //! every image has been validated and prepared, so a failed export leaves no
 //! half-finished folder behind (apart from an empty output folder).
 
-use crate::html::to_html;
+use crate::export_options::ExportOptions;
+use crate::html::to_html_with;
 use crate::image_export::{prepare_image, Shrink, PRINT_SHRINK};
-use crate::markdown::to_markdown;
+use crate::markdown::to_markdown_with;
 use crate::model::{Block, Recording, Rect};
 use crate::storage::is_reserved_device_name;
 use std::collections::HashMap;
@@ -252,9 +253,19 @@ fn write_bundle(out_dir: &Path, doc_name: &str, doc: &str, files: &[(String, Vec
 
 /// Write `document.md` and `images/` into `out_dir`.
 pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
+    export_markdown_with(rec, source_dir, out_dir, &ExportOptions::default())
+}
+
+/// [`export_markdown`] with export options (step times, technical details).
+pub fn export_markdown_with(
+    rec: &Recording,
+    source_dir: &Path,
+    out_dir: &Path,
+    opts: &ExportOptions,
+) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
     let p = prepare_all(rec, source_dir, None)?;
-    write_bundle(out_dir, "document.md", &to_markdown(rec), &p.files)?;
+    write_bundle(out_dir, "document.md", &to_markdown_with(rec, opts), &p.files)?;
     Ok(p.report)
 }
 
@@ -262,9 +273,19 @@ pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Re
 /// print (PDF) or to keep as an HTML export. Images wider than
 /// [`PRINT_SHRINK`]'s limit are scaled down; Markdown exports keep full size.
 pub fn prepare_html_export(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
+    prepare_html_export_with(rec, source_dir, out_dir, &ExportOptions::default())
+}
+
+/// [`prepare_html_export`] with export options (step times, technical details).
+pub fn prepare_html_export_with(
+    rec: &Recording,
+    source_dir: &Path,
+    out_dir: &Path,
+    opts: &ExportOptions,
+) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
     let p = prepare_all(rec, source_dir, Some(PRINT_SHRINK))?;
-    write_bundle(out_dir, "document.html", &to_html(rec), &p.files)?;
+    write_bundle(out_dir, "document.html", &to_html_with(rec, opts), &p.files)?;
     Ok(p.report)
 }
 

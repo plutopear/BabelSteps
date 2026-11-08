@@ -6,10 +6,11 @@
 
 use crate::error::{AppError, AppResult, ErrorKind};
 use crate::pdf::{export_pdf_with, PdfExportError};
-use babelsteps_core::export::{export_markdown as core_export_markdown, validate_image_path, ExportReport};
+use babelsteps_core::export::{export_markdown_with as core_export_markdown, validate_image_path, ExportReport};
+use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::Recording;
 use babelsteps_core::storage::{delete_bundle, library, Bundle};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -292,9 +293,47 @@ fn outside_bundle(bundle: &Bundle, target: &Path) -> AppResult<()> {
     }
 }
 
+/// What the user ticked in the export dialog. Both options are off by default
+/// (PSR-2, PSR-6).
+#[derive(Deserialize, Debug, Clone, Copy, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ExportChoices {
+    pub step_times: bool,
+    pub technical_details: bool,
+    /// Minutes east of UTC when the recording was made, from the webview's clock.
+    pub utc_offset_minutes: i32,
+}
+
+impl ExportChoices {
+    /// The options for the core exporters. The operating system and app version
+    /// are only looked up for the technical details, and never name the user or machine.
+    pub fn to_options(self) -> ExportOptions {
+        let details = self.technical_details;
+        ExportOptions {
+            step_times: self.step_times,
+            technical_details: details,
+            // Real offsets are within -12 h to +14 h.
+            utc_offset_minutes: self.utc_offset_minutes.clamp(-14 * 60, 14 * 60),
+            os: if details { os_description() } else { String::new() },
+            app: if details { format!("BabelSteps {}", env!("CARGO_PKG_VERSION")) } else { String::new() },
+        }
+    }
+}
+
+#[cfg(windows)]
+fn os_description() -> String {
+    babelsteps_windows::os::os_description()
+}
+
+#[cfg(not(windows))]
+fn os_description() -> String {
+    String::new()
+}
+
 /// Export the saved document as `document.md` plus `images/` into `out_dir`.
 #[tauri::command]
-pub async fn export_markdown(app: AppHandle, out_dir: String) -> AppResult<ExportSummary> {
+pub async fn export_markdown(app: AppHandle, out_dir: String, choices: Option<ExportChoices>) -> AppResult<ExportSummary> {
+    let opts = choices.unwrap_or_default().to_options();
     let out = require_absolute(&out_dir, "the export folder")?;
     ensure_idle(&app.state::<RecState>())?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -309,7 +348,7 @@ pub async fn export_markdown(app: AppHandle, out_dir: String) -> AppResult<Expor
             outside_bundle(bundle, &out)?;
             (bundle.load()?, bundle.path().to_path_buf())
         };
-        Ok(core_export_markdown(&rec, &dir, &out)?.into())
+        Ok(core_export_markdown(&rec, &dir, &out, &opts)?.into())
     })
     .await
     .map_err(|e| AppError::new(ErrorKind::Export, format!("export task failed: {e}")))?
@@ -317,18 +356,24 @@ pub async fn export_markdown(app: AppHandle, out_dir: String) -> AppResult<Expor
 
 /// Export the saved document as a US Letter PDF.
 #[tauri::command]
-pub async fn export_pdf(app: AppHandle, out_path: String, header_footer: bool) -> AppResult<ExportSummary> {
+pub async fn export_pdf(
+    app: AppHandle,
+    out_path: String,
+    header_footer: bool,
+    choices: Option<ExportChoices>,
+) -> AppResult<ExportSummary> {
+    let opts = choices.unwrap_or_default().to_options();
     let out = require_absolute(&out_path, "the PDF path")?;
     if !out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
         return Err(AppError::new(ErrorKind::InvalidArgument, "the file name must end in .pdf"));
     }
     ensure_idle(&app.state::<RecState>())?;
-    tauri::async_runtime::spawn_blocking(move || run_pdf_export(&app, &out, header_footer))
+    tauri::async_runtime::spawn_blocking(move || run_pdf_export(&app, &out, header_footer, &opts))
         .await
         .map_err(|e| AppError::new(ErrorKind::Pdf, format!("export task failed: {e}")))?
 }
 
-pub fn run_pdf_export(app: &AppHandle, out: &Path, header_footer: bool) -> AppResult<ExportSummary> {
+pub fn run_pdf_export(app: &AppHandle, out: &Path, header_footer: bool, opts: &ExportOptions) -> AppResult<ExportSummary> {
     let state = app.state::<AppState>();
     let _busy = state
         .export_lock
@@ -342,7 +387,7 @@ pub fn run_pdf_export(app: &AppHandle, out: &Path, header_footer: bool) -> AppRe
         (bundle.load()?, bundle.path().to_path_buf())
     };
     let printer = crate::pdf::default_printer(app);
-    export_pdf_with(printer.as_ref(), &rec, &dir, out, header_footer, Some(String::new()))
+    export_pdf_with(printer.as_ref(), &rec, &dir, out, header_footer, Some(String::new()), opts)
         .map(Into::into)
         .map_err(map_pdf_error)
 }

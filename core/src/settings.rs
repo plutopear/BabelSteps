@@ -136,6 +136,10 @@ pub struct Settings {
     /// Closing the window keeps BabelSteps running in the tray, so the shortcuts
     /// still work. Off by default: closing quits, as Steps Recorder does.
     pub close_to_tray: bool,
+    /// A3: name the full window title in click steps, as Steps Recorder does.
+    /// Off by default, because titles often hold file names, page titles and
+    /// customer names (privacy doc section 1); steps name the app instead.
+    pub show_window_titles: bool,
 }
 
 impl Default for Settings {
@@ -146,6 +150,7 @@ impl Default for Settings {
             show_capture_border: true,
             hotkeys: HotkeySettings::default(),
             close_to_tray: false,
+            show_window_titles: false,
         }
     }
 }
@@ -222,6 +227,7 @@ mod tests {
         assert_eq!(s.keep_screenshots, None);
         assert!(s.show_capture_border);
         assert!(!s.close_to_tray);
+        assert!(!s.show_window_titles);
         assert!(s.validate().is_ok());
     }
 
@@ -229,7 +235,7 @@ mod tests {
     fn round_trips_and_missing_file_gives_defaults() {
         let p = temp("rt");
         assert_eq!(Settings::load(&p), Settings::default());
-        let s = Settings { keep_screenshots: Some(25), size_warning_mb: 200, show_capture_border: false, hotkeys: HotkeySettings::default(), close_to_tray: true };
+        let s = Settings { keep_screenshots: Some(25), size_warning_mb: 200, show_capture_border: false, hotkeys: HotkeySettings::default(), close_to_tray: true, show_window_titles: true };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p), s);
         assert!(!p.with_extension("json.partial").exists());
@@ -249,6 +255,8 @@ mod tests {
         assert_eq!(Settings::load(&p).keep_screenshots, Some(10));
         // Files from before the tray setting existed: closing still quits.
         assert!(!Settings::load(&p).close_to_tray);
+        // Files from before the window-title setting existed: titles stay out.
+        assert!(!Settings::load(&p).show_window_titles);
     }
 
     #[test]

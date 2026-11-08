@@ -9,6 +9,7 @@
 
 use crate::export::validate_image_path;
 use crate::markdown::{encode_path, WITHHELD_SENTENCE};
+use crate::export_options::{recorded_on_line, step_time, technical_details, ExportOptions, DETAILS_HEADING, DETAILS_STEPS_HEADING};
 use crate::model::{Block, CalloutKind, Recording};
 
 /// Shown in place of an image whose path is not a plain `images/...` path.
@@ -35,6 +36,9 @@ figure { margin: 0.6em 0; page-break-inside: avoid; break-inside: avoid; }
 figure img { max-width: 100%; height: auto; border: 1px solid #000; }
 figcaption { font-size: 10pt; margin-top: 0.3em; }
 .step-image { page-break-before: avoid; break-before: avoid; }
+.step-time { margin: 0 0 0.3em; font-size: 10pt; }
+.recorded-on { margin: 0 0 1em; }
+.details { margin-top: 2em; border-top: 1px solid #000; }
 .withheld { font-style: italic; border: 1px dashed #000; padding: 0.4em 0.6em; }
 .callout { margin: 0.8em 0; padding: 0.5em 0.8em; border: 1px solid #000; border-left-width: 8px; page-break-inside: avoid; break-inside: avoid; }
 .callout .label { font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -133,12 +137,20 @@ fn src_attr(path: &str) -> String {
 }
 
 pub fn to_html(rec: &Recording) -> String {
+    to_html_with(rec, &ExportOptions::default())
+}
+
+/// HTML with the export options applied (step times, technical details).
+pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
     let title = escape_html(rec.title.trim());
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     out.push_str(&format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{CSP}\">\n"));
     out.push_str(&format!("<title>{title}</title>\n<style>\n{CSS}</style>\n</head>\n<body>\n"));
     out.push_str(&format!("<h1>{title}</h1>\n"));
+    if let Some(line) = recorded_on_line(rec, opts) {
+        out.push_str(&format!("<p class=\"recorded-on\">{}</p>\n", escape_html(&line)));
+    }
 
     let mut step_no = 0usize;
     for block in &rec.blocks {
@@ -157,6 +169,9 @@ pub fn to_html(rec: &Recording) -> String {
                 step_no += 1;
                 out.push_str("<section class=\"step\">\n<div class=\"step-head\">\n");
                 out.push_str(&format!("<h2>Step {step_no}. {}</h2>\n", escape_html(step.title.trim())));
+                if let Some(t) = step_time(rec, step, opts) {
+                    out.push_str(&format!("<p class=\"step-time\">Time: {}</p>\n", escape_html(&t)));
+                }
                 out.push_str("</div>\n");
                 let desc = rich(&step.description);
                 if !desc.is_empty() {
@@ -212,6 +227,21 @@ pub fn to_html(rec: &Recording) -> String {
                 ));
             }
         }
+    }
+    if let Some(d) = technical_details(rec, opts) {
+        out.push_str(&format!("<section class=\"details\">\n<h2>{DETAILS_HEADING}</h2>\n<ul>\n"));
+        for (label, value) in &d.facts {
+            out.push_str(&format!("<li>{label}: {}</li>\n", escape_html(value)));
+        }
+        out.push_str("</ul>\n");
+        if !d.steps.is_empty() {
+            out.push_str(&format!("<h3>{DETAILS_STEPS_HEADING}</h3>\n<ul>\n"));
+            for (n, line) in &d.steps {
+                out.push_str(&format!("<li>Step {n}: {}</li>\n", escape_html(line)));
+            }
+            out.push_str("</ul>\n");
+        }
+        out.push_str("</section>\n");
     }
     out.push_str("</body>\n</html>\n");
     out

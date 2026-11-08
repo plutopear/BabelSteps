@@ -52,6 +52,7 @@
 - A frame not proven to predate its event (GDI fallback, history flushed) is kept but the step says "This screenshot may show the moment after the action."
 - The hook watchdog compares the system's last-input time with the last hook callback and reinstalls the hooks if Windows removed them.
 - Recording refuses to start unless the thread is per-monitor DPI aware.
+- Scope (A6, Q13): the whole screen, one monitor (by device name, which survives a resolution change), or one window. The capture thread drops clicks and keys outside it. A window counts its owned dialogs and its own title-less pop-ups (menus, drop-downs). For one window, the frame is cut to the bounding box of the window and the clicked pop-up or dialog, and the rest of that box is painted grey, before the window snapshot, so the scan and the writer only see that area. The desktop and taskbar never count as part of a File Explorer window, although they share its process. Windows on top of the chosen one still show, and the cut uses the window's position at handling time (a few ms after the frame). If the window closes or the monitor disconnects, nothing more is recorded and the panel says so.
 
 **Known Windows limits to document:**
 - UIPI: a non-elevated recorder is expected not to see input sent to elevated windows (not yet tested). Options are `uiAccess` as Steps Recorder uses (needs a signed binary in a protected folder), running elevated (not recommended), or a warning when an elevated window is active. See Q17.
