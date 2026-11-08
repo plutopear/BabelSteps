@@ -249,6 +249,14 @@ fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult
     if active.is_some() {
         return Err(busy_error());
     }
+    // B14: never record with custom rules that did not build, because the user
+    // would believe their words were hidden. The message names no word.
+    let custom = rs
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .custom_rules()
+        .map_err(|m| AppError::new(ErrorKind::InvalidArgument, format!("{m}. Fix it in Settings before recording")))?;
     let state = app.state::<AppState>();
     let mut current = lock_current(&state);
     let bundle = match current.take() {
@@ -281,6 +289,7 @@ fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult
         ignore_shell_elements_named: Some("BabelSteps:".to_string()),
         scope: scope.clone(),
         show_window_titles,
+        custom,
         ..RecorderConfig::default()
     };
     let scope = info;

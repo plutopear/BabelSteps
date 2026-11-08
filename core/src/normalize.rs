@@ -995,6 +995,22 @@ mod tests {
     }
 
     #[test]
+    fn custom_words_and_patterns_from_settings_hide_typed_text() {
+        let settings = crate::settings::Settings {
+            custom_words: vec!["Zebracorp".into()],
+            custom_patterns: vec!["PROJ-[0-9]+".into()],
+            ..Default::default()
+        };
+        let custom = settings.custom_rules().unwrap();
+        let mut n = Normalizer::new(NormalizerConfig { keystrokes_enabled: true, custom, show_window_titles: false });
+        n.push(text("zebracorp ticket PROJ-1234 done", CLEAN));
+        let out = n.finish();
+        assert_eq!(one(&out).action, Action::Text { text: "[custom] ticket [custom] done".to_string() });
+        assert_absent(&n, &out, "zebracorp");
+        assert_absent(&n, &out, "PROJ-1234");
+    }
+
+    #[test]
     fn comment_text_is_scrubbed() {
         let mut n = normalizer(true);
         let out = n.push(Event::Comment { t_ms: 5, text: "ask me@example.com".to_string() });
