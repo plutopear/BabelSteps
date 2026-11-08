@@ -4,13 +4,21 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Rules.** Pass means a recorded test on the real desktop shows it. Code without a test is "not tested". Unit tests alone, for behavior that depends on the real desktop, are "partial". Live results from before the 2026-11-08 hotkey and close-path changes count as partial until re-run on the current build.
 
-**Where it stands (2026-11-08):** Pass 1, Partial 18, Not tested 5, Not built 4, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. Most partial items close with one owner-approved live run of the current release app; the rest need building, hardware the owner may not have (a second monitor), or an owner decision.
+**Where it stands (2026-11-08, end of session):** Pass 2, Partial 20, Not tested 2, Not built 4, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), something built, hardware the owner may not have (a second monitor), or an owner decision.
+
+**Close to the tray, 2026-11-08 (Q21; 24 of 24, plus a quick 4 of 4 on the final build; `research/m1-results.md`):** D1 is met in tray mode, at 6 MB and 0.3% of one core with the window closed. D3 was measured warm only, at 0.66 to 0.81 s to the window. The start, note and stop shortcuts work with no window. The window is rebuilt hardened, and it stays hidden until the hardening is confirmed.
 
 **Live app run, 2026-11-08 (21 of 22, `research/m1-results.md`):** start from the UI, the pause button and shortcut, a note from the panel and the note shortcut, the stop button, a remapped start shortcut, stop-now, resetting shortcuts, retention on disk, and sockets while recording all passed on the current build. That evidence supersedes the 2026-11-07 run for A1, A4, A5, C3 and A8. Still open from it: the retention notice on screen (fixed, not yet confirmed live), stopping from the tray, and D1 (147 MB idle with the window open, against a 50 MB target).
 
 ## Next actions, by who must act
 
-**One owner-approved live run of the current release app** (closes or advances A1, A4, A5, C2, C3, C4, PSR-9; start and stop from the panel, the tray and hotkeys; a note from the panel; settings changed and saved). Measure D1 and D3 in the same run.
+**Owner clicks, or an owner-approved run:**
+- Tray menu Stop, Show and Quit, and a double-click on the tray icon (the menu now opens on right-click).
+- See the red frame and the retention notice on screen.
+- Pick a non-default library folder (C4).
+- Sign out during a recording with the window closed (tray mode).
+
+**Done 2026-11-08 (live app 21 of 22, tray 24 of 24):** start, pause, notes, stop and remapped shortcuts; settings saved and applied; D1 met in tray mode.
 
 **Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
@@ -43,11 +51,11 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | C2 | Always-visible recording indicator: a tray icon plus a visible cue (frame) on the capture target, kept out of the screenshots. | Partial |
 | C3 | Global hotkeys for start, pause, add note and stop, remappable with conflict warnings; the panic-stop hotkey always works. Defaults are Ctrl+Alt+Shift+R/P/N/X. | Partial |
 | C4 | Recordings are stored in a user-chosen folder, with an in-app library to browse, rename and delete. | Partial |
-| D1 | Idle in the tray, the app uses under 50 MB of RAM and almost no CPU (M1 exit target). | Not tested |
+| D1 | Idle in the tray, the app uses under 50 MB of RAM and almost no CPU (M1 exit target). | Pass |
 | D2 | While recording, CPU stays under 5% sustained on a typical laptop and no clicks are dropped (M1 exit target). | Partial |
-| D3 | Cold start to the tray takes under 1 second (M1 exit target). | Not tested |
+| D3 | Cold start to the tray takes under 1 second (M1 exit target). | Partial |
 | D6 | A screenshot is ready within 150 ms of a click and shows the screen just before the click. This is a deliberate difference from Steps Recorder, which shows the screen after the click (Q3). | Partial |
-| D7 | Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions. | Not tested |
+| D7 | Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions. | Partial |
 | PSR-1 | Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling). | Not built |
 | PSR-2 | Each step has a number and a timestamp. | Partial |
 | PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Not built |
@@ -197,13 +205,13 @@ Recordings are stored in a user-chosen folder, with an in-app library to browse,
 - **Evidence:** Unit tests in core/src/storage.rs: library_lists_and_skips_unreadable, rename_changes_title_only, delete_refuses_ordinary_folders, create_makes_layout_and_dedups, roundtrip_through_fresh_handle, open_refuses_non_bundles. Live (debug build, page-level input): research/m2-results.md 'Editor UI in the real app (2026-11-06)': the library lists and opens a recording; delete asks first, says it cannot be undone and removes the folder. m1-results 'First live test' and 'Tray test': saved recordings reopen with 0 missing and 0 unreferenced images.
 - **Gap:** Not tested live: choosing a non-default folder through the native folder picker (m2-results 'Not tested: the native file pickers'), and rename in the UI (unit test only). To close: a live run in the release app that picks a folder, records, renames and deletes (the recording part needs the owner's OK).
 
-### D1: Not tested
+### D1: Pass
 
 Idle in the tray, the app uses under 50 MB of RAM and almost no CPU (M1 exit target).
 
 - **Steps Recorder:** Not in baseline. Steps Recorder's memory and CPU were not measured.
-- **Evidence:** No measurement. research/m0-spike-results.md 'Not tested' (Tauri and WebView2 row): D1 unmeasured. docs/05-roadmap.md M1: 'measure D1, D3, and D7' (not done). The m1-results 'app window loads its UI' launch recorded sockets only.
-- **Gap:** Launch the release app, leave it idle in the tray for a few minutes, and sample the private working set and CPU of the app process and its WebView2 child processes. Guess: the WebView2 processes alone may exceed 50 MB. Launching the app needs the owner's OK; it injects no input. A laptop figure is also missing.
+- **Evidence:** research/m1-results.md, "close to the tray (Q21), live test, 24 of 24". The release app was set to "Keep running in the tray" with the window closed. After 15 s idle it used 6 MB of private memory in 1 process, 28 MB working set, and 0.3% of one core over 5 s. The WebView2 processes had ended. With the window open it uses 147 MB, and no target covers that state (D1 note in docs/02-requirements.md).
+- **Gap:** Single measurements on one fast PC. There is no laptop figure, and no long idle period (minutes) was sampled.
 
 ### D2: Partial
 
@@ -213,12 +221,12 @@ While recording, CPU stays under 5% sustained on a typical laptop and no clicks 
 - **Evidence:** Dropped input, live on the real desktop: capture_selftest checks 'hooks: no input event was dropped' and 'hooks: the burst reached the hooks' (0 of 1,000 dropped; hook callback mean 1.7 microseconds, max 69 microseconds, per m1-results 'Recording engine self-test' row 'Hooks'). 'before-state ({label}): one click step per click' passed 20/20 and 10/10 with analysis slowed by 400 ms. All 8 edge clicks per corner recorded (55/55 run). Analysis took about 94 ms mean and 100 ms max per event, off the capture path (m1-results 'Recording engine self-test'; 66 ms max in Edge). CPU: only the M0 spike, 0.4-0.8% of one core idle and 2.0-3.5% at 60 Hz repaint (m0-spike-results 'Measured results').
 - **Gap:** CPU has never been measured for the M1 engine or the real app while recording, so WebView2, the tray and the analysis thread are not counted. There is no laptop figure; m1-results says lower-end hardware is untested. The click checks used slow synthetic clicks on one monitor. Untested: fast real click bursts, many open windows, multi-monitor, elevated windows, long sessions. Needed: a CPU sample of the release app during a recording (owner's OK) and a laptop run (hardware).
 
-### D3: Not tested
+### D3: Partial
 
 Cold start to the tray takes under 1 second (M1 exit target).
 
 - **Steps Recorder:** Not in baseline.
-- **Evidence:** No timing. research/m0-spike-results.md 'Not tested': D3 is 'nothing to measure yet'. research/m1-results.md has no D3 entry; the 2026-11-08 launch confirmed only that the UI loads.
+- **Evidence:** Warm launches of the release build on 2026-11-08 (research/m1-results.md): 0.65 s to the Library screen in the live app test. In the quick check on the final build, the window was visible at 0.66 s and the Library screen at 0.81 s. These are single runs.
 - **Gap:** Time from process start until the tray icon is registered and the window is ready, in the release build, over several launches, with cold (first after boot) separated from warm. Needs the owner's OK; a true cold start needs a reboot, which the owner would notice. Guess: WebView2 start-up is the main risk.
 
 ### D6: Partial
@@ -229,12 +237,12 @@ A screenshot is ready within 150 ms of a click and shows the screen just before 
 - **Evidence:** Before-state, live on the real desktop: capture_selftest checks 'before-state ({label}): ...' with control 'before-state control ({label}): the window reacted to every click' (capture_selftest.rs around lines 195-202). 20 of 20, and 10 of 10 with analysis slowed by 400 ms (m1-results 'Recording engine self-test', row 'Before the click'). Check 'fallback capture: a screenshot that cannot be proven to predate the click is marked'. Unit tests in platform/windows/src/capture.rs: frame_just_before_the_click_is_chosen, busy_screen_keeps_advancing_and_reaches_back, overwritten_pre_click_frame_is_not_verified. Latency: M0 spike only, p50 9.4 ms and p95 11.2 ms (m0-spike-results 'Measured results').
 - **Gap:** The before-state half is demonstrated, but only on one monitor at 100% scaling, on our synthetic window. The M1 engine reports no click-to-pixels latency (no latency figure in pipeline.rs, capture.rs or capture_selftest.rs), so the 150 ms target is backed only by the old spike code. Untested: multi-monitor, mixed DPI, elevated windows, after sleep, lock or resolution change (the rebuild code has never run), real apps other than our window, lower-end hardware. GDI fallback frames are labeled 'may show the moment after', not guaranteed to be before. To close: add a latency figure to the self-test (needs the owner's OK to run).
 
-### D7: Not tested
+### D7: Partial
 
 Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions.
 
 - **Steps Recorder:** Not in baseline. A 31-step Steps Recorder recording completed with 'Missed Steps: 0'; no step cap beyond the screenshot limit was observed.
-- **Evidence:** Only proxies: research/m0-spike-results.md, spike peak about 160 MB; research/m1-results.md 'Recording engine self-test': frames held for analysis stayed within the 200 MB budget (0 over budget). docs/03-architecture.md sets the 200 MB frame budget. m1-results lists long sessions as not tested.
+- **Evidence:** Only proxies: research/m0-spike-results.md, spike peak about 160 MB; research/m1-results.md 'Recording engine self-test': frames held for analysis stayed within the 200 MB budget (0 over budget). docs/03-architecture.md sets the 200 MB frame budget. m1-results lists long sessions as not tested. Live app test 2026-11-08 (research/m1-results.md): during a short recording with the window open, the app process used 151 MB of private memory, and 345 MB including the WebView2 processes. That is a single sample on the owner's screen. Long sessions are untested, and it is open whether the 250 MB target counts WebView2.
 - **Gap:** Downgraded from partial. Neither the M1 engine nor the app (with WebView2) has had its whole-process memory measured while recording; staying inside the frame budget is not a memory measurement. Guess: the frame budget alone could reach 200 MB under load, so 250 MB is at risk once the UI is added. No test is longer than a few dozen steps. Needed: working-set samples during a release-app recording, plus a run of 100+ steps or 30+ minutes that checks memory, the frame budget, and the step and image counts on disk (owner's OK and an idle PC).
 
 ### PSR-1: Not built
