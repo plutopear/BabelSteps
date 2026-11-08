@@ -32,7 +32,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B7 | Blur or black-out regions on any screenshot before export. | P1 |
 | B8 | Export to **PDF** on US Letter pages. A header and footer (title and page number) are an export option, off by default (Q7). | P0 |
 | B9 | Export to **Markdown** (text file plus an `images/` folder). | P0 |
-| B10 | Export to single-file HTML. | P2 |
+| B10 | Export to single-file HTML. Built 2026-11-08 (PR #30), pulled forward from "Later" by the owner: a third export choice, pictures embedded and redacted, no external references. Not opened in a browser from the real app yet. | P2 |
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |
 | B12 | Automatic redaction of passwords: every password field in any visible window on the captured screen is blacked out at capture on every step, and the original pixels are never stored. If the check fails or times out, the screenshot is withheld. | P0 |
 | B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). Screenshot detection by local text recognition comes after the first release; M2 covers typed text plus manual review (Q27). | P1 |
@@ -48,7 +48,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | C4 | Recordings stored in a user-chosen folder, with an in-app library to browse, rename, and delete. | P0 |
 | C5 | Light and dark themes that follow the OS setting. | P1 |
 | C6 | The app itself is keyboard-navigable and screen-reader friendly. | P1 |
-| C7 | Settings are stored locally and can be exported and imported. | P2 |
+| C7 | Settings are stored locally and can be exported and imported. Built 2026-11-08 (PR #27): a JSON file including hotkeys; import refuses bad files without quoting them and lists any privacy-weakening setting the file switches on. The dialogs have not been clicked on a real desktop. | P2 |
 
 ## D. Non-functional targets (proposed; validate in M1)
 
@@ -69,7 +69,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | --- | --- | --- |
 | E1 | Callout blocks inside a document: Note, Tip, Warning. Useful for training guides. | P1 |
 | E2 | Markdown output pastes cleanly into common ticketing and knowledge-base tools (plain headings, numbered lists, relative image links). | P1 |
-| E3 | Built-in document templates: "Helpdesk how-to" and "Training guide" (title, purpose, prerequisites, steps, result). | P1 |
+| E3 | Built-in document templates: "Helpdesk how-to" and "Training guide" (title, purpose, prerequisites, steps, result). Built 2026-11-08 (PR #25); recorded steps go under the template's "Steps" heading. Untested: a live recording into a template, the picker on screen, and the capture self-test after that change. | P1 |
 | E4 | Optional environment line in a document (OS version, app name and version), off by default, never auto-filled with user or machine names. | P2 |
 | E5 | Redaction is prominent in the export flow, since helpdesk recordings often show customer or admin data. A pre-export checklist reminds the user to review screenshots. | P1 |
 | E6 | Print-friendly PDF layout for handouts. | P1 |
