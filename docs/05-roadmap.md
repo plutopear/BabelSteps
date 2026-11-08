@@ -1,6 +1,6 @@
 # Roadmap
 
-Milestones are sequenced by dependency, not calendar dates. Sizing and dates get set once the Q-decisions are made and the team and time budget are known.
+Milestones are sequenced by dependency, not calendar dates. The pass/fail exit criteria for each milestone, and their current status, are in `07-definition-of-done.md`. Each milestone ends with the owner doing one real task with the build. Sizing and dates get set once the Q-decisions are made and the team and time budget are known.
 
 ## M0 — Decisions and spikes
 
@@ -16,6 +16,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 - Spike 4: one-recording end-to-end path: click → screenshot → step → Markdown file.
 
 **Exit:** the spikes meet the D-targets or the targets are revised with reasons. Stack confirmed.
+
+**Closed 2026-11-08.** All exit conditions are met (`07-definition-of-done.md`, M0). Q17 was deliberately left for the M1 admin-window test; remaining gaps moved into M1.
 
 ## M1 — Windows capture parity
 
@@ -47,8 +49,8 @@ Done this session:
 
 Next, in order:
 1. Owner clicks: tray menu Stop, Show and Quit, a double-click on the tray icon, seeing the frame and the retention notice, and the Settings click-through.
-2. Claude can build without the owner: smaller stored images (PSR-1) and the opt-in full window title (A3). The window-or-monitor choice (A6, Q13) is built (2026-11-08) and needs its first self-test run on Windows.
-3. Owner decisions in the checklist: A9/Q2, PSR-6, PSR-7, and the minor PSR-2, PSR-3 and PSR-5.
+2. Claude can build without the owner: smaller stored images (PSR-1). The window-or-monitor choice (A6, Q13) is built (2026-11-08) and passed its self-test checks on Windows. The opt-in full window title (A3) is built on branch `claude/project-thread-axy1rr` (2026-11-08); its self-test check still needs a run on Windows.
+3. Owner decisions made 2026-11-08, still to build: step times, the typed-text notice and step counts (PSR-2, PSR-3, PSR-5; Q30). A9, PSR-6 and PSR-7 are decided in Q23 and Q25.
 4. Hardware or machine state: an elevated window (Q17), sleep, lock and resolution change, and a second monitor (Q20).
 
 Live tests:

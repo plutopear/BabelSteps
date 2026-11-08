@@ -178,7 +178,8 @@ impl MouseButton {
 pub struct Target {
     pub name: String,
     pub control_type: String,
-    /// Only filled when the user opts in. Never used in step titles.
+    /// Only filled when the user turned on "Show full window titles in steps"
+    /// (A3); `None` otherwise. Step titles use it only under that setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title: Option<String>,
     pub process_name: String,
@@ -246,29 +247,42 @@ impl Rect {
 
 /// Build the human-readable step title from a click and what was under it.
 /// Examples: `Left-click "Save" button in Notepad`, `Left-click at (120, 340)`.
-pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Target>) -> String {
+///
+/// The step names the app, not the window title, because titles often hold
+/// file names, page titles and customer names (A3, privacy doc section 1).
+/// Only when the user turned on the opt-in (`show_window_title`) and the target
+/// carries a title does the step name the window, as Steps Recorder does:
+/// `Left-click "Save" button in "Untitled - Notepad"`. The app name follows in
+/// brackets when the title does not already contain it.
+pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Target>, show_window_title: bool) -> String {
     let verb = button.label();
-    match target {
-        Some(t) if !t.name.trim().is_empty() => {
-            let ctl = t.control_type.trim().to_lowercase();
-            // Privacy: app name only, never the window title (it can hold
-            // document names or other private text).
-            let app = app_name(&t.process_name);
-            let mut s = format!("{verb} \"{}\"", t.name.trim());
-            if !ctl.is_empty() {
-                s.push(' ');
-                s.push_str(&ctl);
-            }
-            if !app.is_empty() {
-                s.push_str(" in ");
-                s.push_str(&app);
-            }
-            s
+    let Some(t) = target else { return format!("{verb} at ({x}, {y})") };
+    let app = app_name(&t.process_name);
+    let window = if show_window_title {
+        t.window_title.as_deref().map(str::trim).filter(|w| !w.is_empty())
+    } else {
+        None
+    };
+    let place = match window {
+        Some(w) if app.is_empty() || w.to_lowercase().contains(&app.to_lowercase()) => format!(" in \"{w}\""),
+        Some(w) => format!(" in \"{w}\" ({app})"),
+        None if !app.is_empty() => format!(" in {app}"),
+        None => String::new(),
+    };
+    let ctl = t.control_type.trim().to_lowercase();
+    if !t.name.trim().is_empty() {
+        let mut s = format!("{verb} \"{}\"", t.name.trim());
+        if !ctl.is_empty() {
+            s.push(' ');
+            s.push_str(&ctl);
         }
-        Some(t) if !t.control_type.trim().is_empty() => {
-            format!("{verb} {} at ({x}, {y})", t.control_type.trim().to_lowercase())
-        }
-        _ => format!("{verb} at ({x}, {y})"),
+        s + &place
+    } else if !ctl.is_empty() {
+        // Without the opt-in this keeps its old wording, with no app name.
+        let place = if window.is_some() { place.as_str() } else { "" };
+        format!("{verb} {ctl} at ({x}, {y}){place}")
+    } else {
+        format!("{verb} at ({x}, {y})")
     }
 }
 

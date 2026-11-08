@@ -116,7 +116,7 @@ function recStatus() {
 }
 // Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
 (globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
-let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false };
+let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false, showWindowTitles: false };
 function busy(): never {
   throw { kind: "busy", message: "" };
 }
