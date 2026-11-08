@@ -145,7 +145,9 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
         keystrokes_enabled: keystrokes,
         ignore_keys,
         ignore_areas: Some(rs.tray_area.clone()),
-        ignore_shell_elements_named: Some("BabelSteps".to_string()),
+        // The tray tooltip starts with this. A colon cannot appear in file
+        // names, so File Explorer items are never matched.
+        ignore_shell_elements_named: Some("BabelSteps:".to_string()),
         ..RecorderConfig::default()
     };
     match Recorder::start(bundle, recording, config) {
