@@ -37,7 +37,7 @@ Done when a Steps Recorder user can switch and lose nothing they rely on, and Ba
 | 1.6 | Two monitors at different scaling (A7) | Self-test on a second monitor; else "not tested" under Q22 | Partial |
 | 1.7 | Sleep, lock and resolution change mid-recording recover with fresh pictures (PSR-10) | Live run | Not started |
 | 1.8 | Save to a user-picked folder; library opens, renames, deletes; retention works (C4, A8) | Live run with a non-default folder | Partial |
-| 1.9 | A real recording exports to one PDF that opens without the app (Q23), and a 30-step recording is under 10 MB (Q24, D8, PSR-1) | Real recording exported and opened on another account. Smaller stored images (PSR-1) are built on a branch, not merged; its pull request is being reopened in the public repository | Partial |
+| 1.9 | A real recording exports to one PDF that opens without the app (Q23), and a 30-step recording is under 10 MB (Q24, D8, PSR-1) | Real recording exported and opened on another account. Smaller stored images and PDF pictures (PSR-1) merged with PR #9: about 0.37 MB of PDF per step at the old 2000 px setting on a real 8-step recording, so a 30-step PDF at 1600 px is estimated at about 7 MB; a real 30-step PDF is not yet measured | Partial |
 | 1.10 | Owner sees the frame and tray colours; the frame never appears in a picture (C2) | Self-test plus the owner's eyes | Partial |
 | 1.11 | D1 idle under 50 MB, D2 recording under 5% CPU on the Q26 laptop, D3 start under 1 s, D7 recording memory under 250 MB | Measured on the release build, conditions written down | Partial |
 | 1.12 | No socket opens during a full record, edit and export session (C1) | Socket watch during a live session | Partial |

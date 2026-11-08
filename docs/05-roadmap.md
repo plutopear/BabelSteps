@@ -51,7 +51,7 @@ Done this session:
 
 Next, in order:
 1. Owner clicks: tray menu Stop, Show and Quit, a double-click on the tray icon, seeing the frame and the retention notice, and the Settings click-through.
-2. Claude can build without the owner. Merged into `main` on 2026-11-08: the window-or-monitor choice (A6, Q13; PR #5, self-test checks passed on Windows) and the opt-in full window title (A3; PR #4; its self-test check `window_title_opt_in` has not run on Windows and the owner has not clicked the Settings option). The privacy checks run in CI (PR #10, merged 2026-11-08; Definition of Done 3.4 is Partial). Built on a branch, not merged: smaller stored images (PSR-1); its pull request is being reopened in the public repository.
+2. Claude can build without the owner. Merged into `main` on 2026-11-08: the window-or-monitor choice (A6, Q13; PR #5, self-test checks passed on Windows) and the opt-in full window title (A3; PR #4; its self-test check `window_title_opt_in` has not run on Windows and the owner has not clicked the Settings option). The privacy checks run in CI (PR #10, merged 2026-11-08; Definition of Done 3.4 is Partial). Smaller stored images (PSR-1, PR #9, merged 2026-11-08): compressed PNG or JPEG on disk, and PDF pictures wider than 2000 px shrunk to 1600 px for the 10 MB target (Q24); a real 30-step PDF is not yet measured.
 3. Step times, the typed-text notice, step counts and the technical-details option (PSR-2, PSR-3, PSR-5, PSR-6; Q25, Q30) are merged into `main` (PR #11, 2026-11-08): the Windows build and 211 tests passed; a real PDF export with the options on and the counts notice after a live recording are not yet checked. A9 and PSR-7 are decided in Q23 and Q25.
 4. Hardware or machine state: an elevated window (Q17), sleep, lock and resolution change, and a second monitor (Q20).
 
@@ -67,7 +67,7 @@ Live tests:
 - Retention settings (A8).
 - First task: a Tauri 2 shell, to prove the UI half of the stack and measure D1, D3, and D7.
 - Carried over from M0: multiple monitors and mixed DPI, elevated windows and UAC, Chrome and Firefox, Steps Recorder's comment, pause, and settings UI, and sleep, lock, and resolution changes.
-- Image size decision: crop to the active window, choice of format, and downscaling for export.
+- Image size decision: crop to the active window, choice of format, and downscaling for export. Format decided 2026-11-08 (PSR-1): lossless PNG for UI screens, JPEG for photo-heavy ones, full resolution; cropping stays with A6.
 - Privacy fixes from the M0 audit, none of which may carry over from the spike: withhold the screenshot when the password check fails or times out, scan all visible windows, use all three password signals, and name the app rather than the window title (`describe_click` in `core`).
 
 **Exit:** a parity checklist, derived from the baseline work, passes item by item. Performance targets D1–D3 met.

@@ -12,6 +12,7 @@ pub mod normalize;
 pub mod notice;
 pub mod password;
 pub mod pii;
+pub mod screenshot;
 pub mod settings;
 pub mod storage;
 #[cfg(any(test, feature = "test-support"))]

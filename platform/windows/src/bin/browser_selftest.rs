@@ -466,7 +466,7 @@ fn record(c: &mut Checks, sc: &Scenario, b: &Browser, work: &Path, crop_out: &Pa
     let mut last = None;
     for s in &all[..with_field] {
         let Some(rel) = &s.screenshot else { continue };
-        let f = Frame::load_png(&bundle.join(rel), m.x, m.y).with_context(|| format!("reading {rel}"))?;
+        let f = Frame::load(&bundle.join(rel), m.x, m.y).with_context(|| format!("reading {rel}"))?;
         images += 1;
         if !all_black(&f, pass) {
             not_black.push(format!("{rel} ({})", s.title));
@@ -496,7 +496,7 @@ fn record(c: &mut Checks, sc: &Scenario, b: &Browser, work: &Path, crop_out: &Pa
         format!("unreferenced {unref:?}, missing {missing:?}"),
     );
     if let Some(f) = last.filter(|_| b.unobscured()) {
-        std::fs::write(crop_out, crop(&f, b.content).encode_png()?)?;
+        std::fs::write(crop_out, crop(&f, b.content).encode(babelsteps_core::screenshot::ShotFormat::Png, babelsteps_core::screenshot::Effort::Normal)?)?;
         c.info(format!("{n}: crop of the test page from the last image with the field: {}", crop_out.display()));
     }
     Ok(())

@@ -1,7 +1,9 @@
 //! CPU frame type and the image operations done before a frame is written:
-//! password black-out, element outline, click marker, PNG encoding.
+//! password black-out, element outline, click marker, encoding (PNG or JPEG,
+//! chosen by `babelsteps_core::screenshot`).
 
 use anyhow::Result;
+use babelsteps_core::screenshot::{self, Effort, ShotFormat};
 use babelsteps_core::Rect;
 
 /// Top-down BGRA pixels with `stride = width * 4`. `origin` is in virtual-desktop pixels.
@@ -151,34 +153,28 @@ impl Frame {
         rgb
     }
 
-    /// Encode as RGB PNG. Only IHDR, IDAT and IEND are written: no metadata.
-    pub fn encode_png(&self) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(self.bgra.len() / 8);
-        {
-            let mut enc = png::Encoder::new(&mut out, self.width, self.height);
-            enc.set_color(png::ColorType::Rgb);
-            enc.set_depth(png::BitDepth::Eight);
-            enc.set_compression(png::Compression::Fast);
-            let mut writer = enc.write_header()?;
-            writer.write_image_data(&self.to_rgb())?;
-            writer.finish()?;
-        }
-        Ok(out)
+    /// The format this frame will be stored in: PNG for UI, JPEG when much of
+    /// it is photo-like. Call after the black-out, so the file name and the
+    /// pixels written agree.
+    pub fn stored_format(&self) -> ShotFormat {
+        screenshot::choose_format(&self.bgra, self.width, self.height, 4)
     }
 
-    /// Read a PNG written by `encode_png` back from disk, so checks test the real file.
+    /// Encode as RGB PNG or JPEG. No metadata is written.
+    pub fn encode(&self, format: ShotFormat, effort: Effort) -> Result<Vec<u8>> {
+        screenshot::encode(format, &self.to_rgb(), self.width, self.height, effort).map_err(anyhow::Error::msg)
+    }
+
+    /// Read a stored screenshot (PNG or JPEG) back from disk, so checks test the real file.
     #[cfg(feature = "selftest")]
-    pub fn load_png(path: &std::path::Path, origin_x: i32, origin_y: i32) -> Result<Frame> {
-        let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path)?));
-        let mut reader = decoder.read_info()?;
-        let size = reader.output_buffer_size().ok_or_else(|| anyhow::anyhow!("PNG too large"))?;
-        let mut buf = vec![0u8; size];
-        let info = reader.next_frame(&mut buf)?;
-        let mut bgra = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-        for px in buf[..info.buffer_size()].chunks_exact(3) {
+    pub fn load(path: &std::path::Path, origin_x: i32, origin_y: i32) -> Result<Frame> {
+        let (_, img) = screenshot::decode(&std::fs::read(path)?).map_err(anyhow::Error::msg)?;
+        let (width, height) = img.dimensions();
+        let mut bgra = Vec::with_capacity(width as usize * height as usize * 4);
+        for px in img.as_raw().chunks_exact(3) {
             bgra.extend_from_slice(&[px[2], px[1], px[0], 255]);
         }
-        Ok(Frame { width: info.width, height: info.height, origin_x, origin_y, bgra })
+        Ok(Frame { width, height, origin_x, origin_y, bgra })
     }
 }
 
@@ -252,13 +248,34 @@ mod tests {
     fn png_round_trip_keeps_black_box() {
         let mut f = solid(20, 10, 0, 0);
         f.black_out(&Rect { x: 5, y: 2, w: 4, h: 3 });
-        let png = f.encode_png().unwrap();
-        let mut reader = png::Decoder::new(std::io::Cursor::new(png)).read_info().unwrap();
-        let mut buf = vec![0u8; reader.output_buffer_size().unwrap()];
-        reader.next_frame(&mut buf).unwrap();
-        let at = |x: usize, y: usize| &buf[(y * 20 + x) * 3..(y * 20 + x) * 3 + 3];
-        assert_eq!(at(5, 2), [0, 0, 0]);
-        assert_eq!(at(8, 4), [0, 0, 0]);
-        assert_eq!(at(9, 4), [200, 200, 200]);
+        assert_eq!(f.stored_format(), ShotFormat::Png, "a flat frame is stored losslessly");
+        for effort in [Effort::Normal, Effort::Hurry] {
+            let png = f.encode(ShotFormat::Png, effort).unwrap();
+            let (format, img) = screenshot::decode(&png).unwrap();
+            assert_eq!(format, ShotFormat::Png);
+            assert_eq!(img.get_pixel(5, 2).0, [0, 0, 0]);
+            assert_eq!(img.get_pixel(8, 4).0, [0, 0, 0]);
+            assert_eq!(img.get_pixel(9, 4).0, [200, 200, 200]);
+        }
+    }
+
+    #[test]
+    fn noisy_frame_is_stored_as_jpeg_with_channels_in_order() {
+        // Photo-like noise, with blue high and red low so a swapped channel shows.
+        let (w, h) = (64u32, 32u32);
+        let mut s: u32 = 7;
+        let mut bgra = Vec::new();
+        for _ in 0..w * h {
+            s = s.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            let n = ((s >> 16) % 17) as u8;
+            bgra.extend_from_slice(&[200 + n, 120 + n, 20 + n, 255]);
+        }
+        let f = Frame { width: w, height: h, origin_x: 0, origin_y: 0, bgra };
+        assert_eq!(f.stored_format(), ShotFormat::Jpeg);
+        let jpg = f.encode(ShotFormat::Jpeg, Effort::Normal).unwrap();
+        let (format, img) = screenshot::decode(&jpg).unwrap();
+        assert_eq!(format, ShotFormat::Jpeg);
+        let [r, _, b] = img.get_pixel(30, 15).0;
+        assert!(r < 60 && b > 180, "RGB order kept: r={r} b={b}");
     }
 }
