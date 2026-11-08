@@ -219,3 +219,12 @@ A first attempt saved each print image as the smallest of JPEG, 256-colour PNG a
 That attempt was reverted. Print images (HTML and PDF) now use the fastest PNG setting, because their compression cannot change the PDF size. Markdown exports and stored screenshots keep the tighter encoding from the section above.
 
 **What this means for the 10 MB target:** with WebView2 printing, the PDF size depends only on how many pixels each image has and how simple they are. Choosing a file format does nothing. The levers left are a smaller print width, or writing the PDF ourselves so images can be embedded as JPEG or palette data. A real 30-step recording has not been exported yet, so the real PDF size is unknown: the patterned self-test images compress far worse than real screens.
+
+## 2026-11-08: First real recording sizes (PSR-1)
+
+The release app was built from commit d8081ca and run on the owner's PC with their OK. Conditions: one 5120x1440 screen at 100% scale, keystrokes off. This is a single run. It has only 8 steps, not the planned 30: windows that were already open were left alone, and the Calculator clicks failed to find their buttons. All 8 steps are clicks in File Explorer, which shows fairly plain screens. Nobody viewed the screenshots, and the recording and exports were deleted afterwards.
+
+- Stored: 8 PNG, 0 JPEG, all 5120x1440. Total 5.25 MB, 672 KB per screenshot on average (M0's fast PNG: 1.5-3.8 MB). The recording folder was 5.27 MB.
+- PDF (the app's export command): 2.94 MB for 3 pages, exported in 0.59 s. With header and footer: 2.96 MB in 0.60 s. 8 images, none JPEG.
+- Markdown: 5.25 MB folder, 0.11 s.
+- Estimated from these 8 steps, not measured: about 0.37 MB of PDF per step. That makes **about 11 MB for 30 steps**, just over the 10 MB target, and about 37 MB for 100 steps (the self-test's patterned images give 225.6 MB). A recording of 30 steps would be about 20 MB on disk. Busier screens will be larger.
