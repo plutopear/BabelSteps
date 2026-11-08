@@ -32,6 +32,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 4. The Steps Recorder parity checklist, item by item (the M1 exit).
 Not built yet: the visual cue on the capture target (C2), retention settings (A8), the single-file output decision (A9, Q2), remappable hotkeys (C3).
 
+**Status (2026-11-07, end of session, paused by the owner):** all work is committed on branch `m1-real-app-tests` (not merged into `main`). Done this session: the tray test and the tray-click fix; Edge password fields (27/27, `browser-selftest`). Resume with step 2's elevated window (Q17), then steps 3 and 4. Open, unverified: Edge's save-password prompt and whether the "show password" button took effect (`research/m1-results.md`); the narrowed "BabelSteps:" tray-name check has not been retested live. Both self-tests need the owner's OK for each run.
+
 - Start, pause, stop, comments, and hotkeys (A1–A6, C2–C3).
 - Multi-monitor and DPI correctness (A7).
 - Recording storage in the folder bundle format (C4).
