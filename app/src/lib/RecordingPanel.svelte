@@ -97,6 +97,15 @@
       {#if st.keystrokes}Text you type is saved in the steps. Detected password fields are not recorded.{/if}
       Anything visible on screen appears in screenshots either way.
     </p>
+    <p>
+      {#if st.scope.kind === "window"}
+        Recording <strong>one window</strong>{st.scope.label ? ` (${st.scope.label})` : ""}. Clicks and typing elsewhere are not recorded.
+      {:else if st.scope.kind === "monitor"}
+        Recording <strong>{st.scope.label || "one monitor"}</strong> only. Clicks on other monitors are not recorded.
+      {:else}
+        Recording <strong>the whole screen</strong>.
+      {/if}
+    </p>
     <p class="count">Steps recorded: <strong>{st.steps}</strong></p>
     {#if st.paused}<p class="hint">Paused: nothing is being recorded until you resume.</p>{/if}
 

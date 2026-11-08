@@ -11,8 +11,9 @@ use babelsteps_core::settings::{HotkeySettings, Settings};
 use babelsteps_core::storage::Bundle;
 use babelsteps_windows::hotkeys::{self, Hotkey};
 use babelsteps_windows::indicator::Indicator;
-use babelsteps_windows::{Recorder, RecorderConfig};
-use serde::Serialize;
+use babelsteps_windows::scope;
+use babelsteps_windows::{Recorder, RecorderConfig, Scope};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,18 @@ pub struct Active {
     /// C2 frame on each screen; None if hidden by setting or it could not be shown.
     cue: Option<Indicator>,
     cue_warning: Option<String>,
+    /// A6: what this recording covers, for the recording panel.
+    scope: ScopeInfo,
+}
+
+/// What a recording covers, in the UI's terms.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeInfo {
+    /// "screen", "monitor" or "window".
+    pub kind: &'static str,
+    /// "Monitor 2" or the window's app name. Never the window title (A3).
+    pub label: String,
 }
 
 #[derive(Default)]
@@ -128,6 +141,7 @@ pub struct RecordingStatus {
     pub start_requests: u64,
     pub notice: Option<String>,
     pub hotkeys: Vec<HotkeyInfo>,
+    pub scope: ScopeInfo,
 }
 
 fn status_of(app: &AppHandle) -> RecordingStatus {
@@ -155,6 +169,7 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         start_requests: rs.start_requests.load(Ordering::Relaxed),
         notice: rs.notice.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         hotkeys,
+        scope: ScopeInfo { kind: "screen", label: String::new() },
     };
     if let Some(a) = guard.as_ref() {
         let s = a.recorder.status();
@@ -166,11 +181,66 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         st.withheld = s.withheld;
         st.warnings = s.warnings;
         st.warnings.extend(a.cue_warning.clone());
+        st.scope = a.scope.clone();
     }
     st
 }
 
-fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
+/// What the Record dialog asks for (A6, Q13). Hotkey starts use the whole screen.
+#[derive(Deserialize, Default, Debug, Clone)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CaptureTarget {
+    #[default]
+    Screen,
+    Monitor { device: String },
+    Window { id: i64 },
+}
+
+impl CaptureTarget {
+    fn scope(&self) -> AppResult<Scope> {
+        Ok(match self {
+            CaptureTarget::Screen => Scope::Screen,
+            CaptureTarget::Monitor { device } => Scope::Monitor(device.clone()),
+            CaptureTarget::Window { id } => Scope::Window(
+                isize::try_from(*id).map_err(|_| AppError::new(ErrorKind::InvalidArgument, "not a window"))?,
+            ),
+        })
+    }
+}
+
+fn scope_info(scope: &Scope) -> ScopeInfo {
+    match scope {
+        Scope::Screen => ScopeInfo { kind: "screen", label: String::new() },
+        Scope::Monitor(device) => {
+            let label = scope::monitor_choices()
+                .iter()
+                .find(|m| &m.device == device)
+                .map(monitor_label)
+                .unwrap_or_else(|| "one monitor".into());
+            ScopeInfo { kind: "monitor", label }
+        }
+        Scope::Window(id) => {
+            let app = scope::window_choices().into_iter().find(|w| w.id == *id).map(|w| w.app).unwrap_or_default();
+            ScopeInfo { kind: "window", label: app }
+        }
+    }
+}
+
+fn monitor_label(m: &scope::MonitorChoice) -> String {
+    if m.primary {
+        format!("Main monitor ({} × {})", m.width, m.height)
+    } else {
+        format!("Monitor {} ({} × {})", m.number, m.width, m.height)
+    }
+}
+
+fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult<()> {
+    let scope = target.scope()?;
+    if let Err(e) = scope::validate(&scope, true) {
+        return Err(AppError::new(ErrorKind::InvalidArgument, format!("{e}")));
+    }
+    // Lists windows, so done before taking the recording lock.
+    let info = scope_info(&scope);
     let rs = app.state::<RecState>();
     let mut active = lock_active(&rs);
     if active.is_some() {
@@ -206,9 +276,11 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
         // The tray tooltip starts with this. A colon cannot appear in file
         // names, so File Explorer items are never matched.
         ignore_shell_elements_named: Some("BabelSteps:".to_string()),
+        scope: scope.clone(),
         show_window_titles,
         ..RecorderConfig::default()
     };
+    let scope = info;
     match Recorder::start(bundle, recording, config) {
         Ok(recorder) => {
             let (cue, cue_warning) = if show_border {
@@ -219,7 +291,7 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
             } else {
                 (None, None)
             };
-            *active = Some(Active { recorder, path, keystrokes, cue, cue_warning });
+            *active = Some(Active { recorder, path, keystrokes, cue, cue_warning, scope });
             Ok(())
         }
         Err(e) => {
@@ -452,9 +524,52 @@ pub fn set_editor_unsaved(app: AppHandle, unsaved: bool) {
 }
 
 #[tauri::command]
-pub fn start_recording(app: AppHandle, keystrokes: bool) -> AppResult<RecordingStatus> {
-    start(&app, keystrokes)?;
+pub fn start_recording(app: AppHandle, keystrokes: bool, target: Option<CaptureTarget>) -> AppResult<RecordingStatus> {
+    start(&app, keystrokes, &target.unwrap_or_default())?;
     Ok(status_of(&app))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorOption {
+    pub device: String,
+    pub label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowOption {
+    pub id: i64,
+    /// "Title (app)". Shown in the picker only, never stored.
+    pub label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTargets {
+    pub monitors: Vec<MonitorOption>,
+    pub windows: Vec<WindowOption>,
+}
+
+/// The monitors and windows the Record dialog offers (A6).
+#[tauri::command]
+pub fn list_capture_targets() -> CaptureTargets {
+    let monitors = scope::monitor_choices()
+        .iter()
+        .map(|m| MonitorOption { device: m.device.clone(), label: monitor_label(m) })
+        .collect();
+    let windows = scope::window_choices()
+        .into_iter()
+        .map(|w| {
+            let mut title: String = w.title.trim().chars().take(80).collect();
+            if w.title.trim().chars().count() > 80 {
+                title.push('…');
+            }
+            let label = if w.app.is_empty() { title } else { format!("{title} ({})", w.app) };
+            WindowOption { id: w.id as i64, label }
+        })
+        .collect();
+    CaptureTargets { monitors, windows }
 }
 
 #[tauri::command]
@@ -512,7 +627,9 @@ pub fn setup_hotkeys(app: &AppHandle) {
                             // The editor saves its edits, then starts (keystrokes off).
                             rs.start_requests.fetch_add(1, Ordering::Relaxed);
                         } else {
-                            let _ = start(&app, false); // Keystrokes stay off unless chosen in the app.
+                            // Keystrokes stay off and the whole screen is recorded
+                            // unless chosen in the app.
+                            let _ = start(&app, false, &CaptureTarget::Screen);
                         }
                     }
                     1 => toggle_pause(&app),

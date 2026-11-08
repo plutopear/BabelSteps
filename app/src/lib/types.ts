@@ -123,6 +123,20 @@ export interface RecordingStatus {
   startRequests: number;
   notice: string | null;
   hotkeys: HotkeyInfo[];
+  /** What the running recording covers (A6). Label is a monitor name or an app name, never a window title. */
+  scope: { kind: "screen" | "monitor" | "window"; label: string };
+}
+
+/** What to record (A6, Q13). The whole screen is the default. */
+export type CaptureTarget =
+  | { kind: "screen" }
+  | { kind: "monitor"; device: string }
+  | { kind: "window"; id: number };
+
+export interface CaptureTargets {
+  monitors: { device: string; label: string }[];
+  /** Labels hold window titles: shown in the picker only, never stored or logged. */
+  windows: { id: number; label: string }[];
 }
 
 export interface Settings {

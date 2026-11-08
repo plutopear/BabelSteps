@@ -153,6 +153,9 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 ul.warn-line { padding-left: 1.6rem; }
 .note-form { display: flex; gap: 0.5rem; align-items: end; margin: 1rem 0; }
 .note-form .grow { flex: 1; }
+.target-row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; margin: 0.75rem 0 0.25rem; }
+.target-row .grow { flex: 1; min-width: 12rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.target-row select { width: 100%; }
 .hotkeys { list-style: none; padding: 0; margin: 0.25rem 0 0; }
 .hotkeys li { margin: 0.2rem 0; }
 .small-h { font-size: 1rem; margin: 1rem 0 0.3rem; }

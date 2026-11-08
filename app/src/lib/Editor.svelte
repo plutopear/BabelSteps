@@ -6,7 +6,7 @@
   import ExportDialog from "./ExportDialog.svelte";
   import Modal from "./Modal.svelte";
   import StepShot from "./StepShot.svelte";
-  import type { Block, CalloutKind, Recording } from "./types";
+  import type { Block, CalloutKind, CaptureTarget, CaptureTargets, Recording } from "./types";
 
   let { initial, onback, focusId = null }: { initial: Recording; onback: () => void; focusId?: string | null } = $props();
 
@@ -194,6 +194,38 @@
   let keystrokes = $state(false);
   let starting = $state(false);
   let startError = $state("");
+  // A6: what to record. "screen", "m:<device>" or "w:<window id>".
+  let targetChoice = $state("screen");
+  let targets = $state<CaptureTargets>({ monitors: [], windows: [] });
+  let targetsError = $state("");
+
+  async function loadTargets() {
+    targetsError = "";
+    try {
+      targets = await api.listCaptureTargets();
+    } catch (e) {
+      targetsError = describeError(e, "listing your monitors and windows");
+      targets = { monitors: [], windows: [] };
+    }
+    // The chosen window or monitor may be gone: fall back to the whole screen.
+    const still =
+      targetChoice === "screen" ||
+      (targets.monitors.length > 1 && targets.monitors.some((m) => "m:" + m.device === targetChoice)) ||
+      targets.windows.some((w) => "w:" + w.id === targetChoice);
+    if (!still) targetChoice = "screen";
+  }
+
+  function openRecord() {
+    startError = "";
+    showRecord = true;
+    loadTargets();
+  }
+
+  function chosenTarget(): CaptureTarget {
+    if (targetChoice.startsWith("m:")) return { kind: "monitor", device: targetChoice.slice(2) };
+    if (targetChoice.startsWith("w:")) return { kind: "window", id: Number(targetChoice.slice(2)) };
+    return { kind: "screen" };
+  }
 
   async function startRecording() {
     starting = true;
@@ -203,7 +235,7 @@
         startError = "Your changes could not be saved, so recording did not start. " + error;
         return;
       }
-      const s = await api.startRecording(keystrokes);
+      const s = await api.startRecording(keystrokes, chosenTarget());
       rs.status = s;
       showRecord = false;
       say("Recording started.");
@@ -230,7 +262,8 @@
     const n = rs.status.startRequests;
     if (n > seenStartRequests && !rs.status.active && !starting) {
       seenStartRequests = n;
-      keystrokes = false; // As a hotkey start always is.
+      keystrokes = false; // As a hotkey start always is,
+      targetChoice = "screen"; // and it records the whole screen.
       startRecording();
     }
   });
@@ -260,7 +293,7 @@
     <span class="status" role="status">{saving ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}</span>
     <button type="button" class="primary" onclick={save} disabled={saving || !dirty}>Save</button>
     <button type="button" onclick={() => (showExport = true)}>Export…</button>
-    <button type="button" class="primary" onclick={() => { startError = ""; showRecord = true; }}>Record steps</button>
+    <button type="button" class="primary" onclick={openRecord}>Record steps</button>
   </div>
 
   {#if error}
@@ -405,6 +438,39 @@
 {#if showRecord}
   <Modal title="Record steps" onclose={() => { if (!starting) showRecord = false; }}>
     <p>Recording adds new steps to this document. Your changes are saved first.</p>
+    <div class="target-row">
+      <label class="grow">What to record
+        <select bind:value={targetChoice} disabled={starting}>
+          <option value="screen">The whole screen</option>
+          {#if targets.monitors.length > 1}
+            <optgroup label="One monitor">
+              {#each targets.monitors as m (m.device)}
+                <option value={"m:" + m.device}>{m.label}</option>
+              {/each}
+            </optgroup>
+          {/if}
+          {#if targets.windows.length > 0}
+            <optgroup label="One window">
+              {#each targets.windows as w (w.id)}
+                <option value={"w:" + w.id}>{w.label}</option>
+              {/each}
+            </optgroup>
+          {/if}
+        </select>
+      </label>
+      <button type="button" onclick={loadTargets} disabled={starting}>Refresh list</button>
+    </div>
+    {#if targetsError}<p class="error" role="alert">{targetsError}</p>{/if}
+    <p class="hint">
+      {#if targetChoice.startsWith("w:")}
+        Only clicks and typing in this window, and the menus and dialogs it opens, become steps.
+        Screenshots are cut to the window, but anything lying on top of it still shows.
+      {:else if targetChoice.startsWith("m:")}
+        Only clicks on this monitor, and typing in windows on it, become steps.
+      {:else}
+        Clicks and typing anywhere become steps.
+      {/if}
+    </p>
     <label class="check">
       <input type="checkbox" bind:checked={keystrokes} />
       Record keystrokes

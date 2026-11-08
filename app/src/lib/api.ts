@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppError,
+  CaptureTarget,
+  CaptureTargets,
   ErrorKind,
   ExportChoices,
   ExportSummary,
@@ -88,7 +90,9 @@ export const api = {
     call<ExportSummary>("export_pdf", { outPath, headerFooter, choices }),
   recordingStatus: () => call<RecordingStatus>("recording_status"),
   setEditorUnsaved: (unsaved: boolean) => call<void>("set_editor_unsaved", { unsaved }),
-  startRecording: (keystrokes: boolean) => call<RecordingStatus>("start_recording", { keystrokes }),
+  startRecording: (keystrokes: boolean, target: CaptureTarget = { kind: "screen" }) =>
+    call<RecordingStatus>("start_recording", { keystrokes, target }),
+  listCaptureTargets: () => call<CaptureTargets>("list_capture_targets"),
   pauseRecording: () => call<void>("pause_recording"),
   resumeRecording: () => call<void>("resume_recording"),
   addComment: (text: string) => call<void>("add_comment", { text }),

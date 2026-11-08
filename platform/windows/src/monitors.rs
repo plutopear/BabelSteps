@@ -6,7 +6,7 @@
 
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW};
 use windows::Win32::UI::HiDpi::{
     AreDpiAwarenessContextsEqual, GetDpiForMonitor, GetThreadDpiAwarenessContext, SetThreadDpiAwarenessContext,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, MDT_EFFECTIVE_DPI,
@@ -23,6 +23,9 @@ pub struct Monitor {
     pub h: i32,
     pub dpi: u32,
     pub primary: bool,
+    /// The display's device name (`\\.\DISPLAY1`), UTF-16, zero-padded. It
+    /// survives a resolution change, unlike the handle and the rectangle.
+    pub device: [u16; 32],
 }
 
 impl Monitor {
@@ -32,12 +35,18 @@ impl Monitor {
     pub fn contains(&self, px: i32, py: i32) -> bool {
         px >= self.x && py >= self.y && px < self.x + self.w && py < self.y + self.h
     }
+    pub fn device_name(&self) -> String {
+        let n = self.device.iter().position(|&c| c == 0).unwrap_or(self.device.len());
+        String::from_utf16_lossy(&self.device[..n])
+    }
 }
 
 unsafe extern "system" fn enum_cb(hmon: HMONITOR, _hdc: HDC, _rect: *mut RECT, data: LPARAM) -> BOOL {
     let out = &mut *(data.0 as *mut Vec<Monitor>);
-    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-    if GetMonitorInfoW(hmon, &mut info).as_bool() {
+    let mut ex = MONITORINFOEXW::default();
+    ex.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    if GetMonitorInfoW(hmon, &mut ex as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
+        let info = ex.monitorInfo;
         let r = info.rcMonitor;
         let (mut dx, mut dy) = (96u32, 96u32);
         let _ = GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
@@ -49,6 +58,7 @@ unsafe extern "system" fn enum_cb(hmon: HMONITOR, _hdc: HDC, _rect: *mut RECT, d
             h: r.bottom - r.top,
             dpi: dx,
             primary: info.dwFlags & MONITORINFOF_PRIMARY_BIT != 0,
+            device: ex.szDevice,
         });
     }
     BOOL(1)

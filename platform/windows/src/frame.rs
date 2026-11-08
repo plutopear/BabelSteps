@@ -47,6 +47,45 @@ impl Frame {
         self.clip(r).is_some()
     }
 
+    /// Keep only the part of the frame inside a screen rectangle (A6: one
+    /// window). `None` if the rectangle misses the frame. The cut-away pixels
+    /// are dropped with the old buffer, before anything is written.
+    pub fn crop(self, r: &Rect) -> Option<Frame> {
+        let (x0, y0, x1, y1) = self.clip(r)?;
+        let (w, h) = (x1 - x0, y1 - y0);
+        if (w, h) == (self.width as usize, self.height as usize) {
+            return Some(self);
+        }
+        let stride = self.width as usize * 4;
+        let mut bgra = Vec::with_capacity(w * h * 4);
+        for y in y0..y1 {
+            bgra.extend_from_slice(&self.bgra[y * stride + x0 * 4..y * stride + x1 * 4]);
+        }
+        Some(Frame {
+            width: w as u32,
+            height: h as u32,
+            origin_x: self.origin_x + x0 as i32,
+            origin_y: self.origin_y + y0 as i32,
+            bgra,
+        })
+    }
+
+    /// Paint every pixel outside all of `keep` (screen rectangles) a flat grey,
+    /// so a bounding box around a window and its dialog shows nothing of what
+    /// lies between them. Grey, not black, so it is not mistaken for redaction.
+    pub fn keep_only(&mut self, keep: &[Rect]) {
+        const GREY: [u8; 4] = [128, 128, 128, 255];
+        let boxes: Vec<_> = keep.iter().filter_map(|r| self.clip(r)).collect();
+        let w = self.width as usize;
+        for y in 0..self.height as usize {
+            for x in 0..w {
+                if !boxes.iter().any(|&(x0, y0, x1, y1)| x >= x0 && x < x1 && y >= y0 && y < y1) {
+                    self.bgra[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&GREY);
+                }
+            }
+        }
+    }
+
     /// Paint a screen rectangle solid black. The original pixels are overwritten
     /// in place, so they can never reach the disk.
     pub fn black_out(&mut self, r: &Rect) {
@@ -160,6 +199,37 @@ mod tests {
         assert_eq!(f.sample(-1, 49), Some([0, 0, 0]));
         assert_eq!(f.sample(-11, 40), Some([200, 200, 200]));
         assert_eq!(f.sample(-10, 39), Some([200, 200, 200]));
+    }
+
+    #[test]
+    fn crop_keeps_screen_coordinates() {
+        // A frame for a monitor left of the primary one, with one marked pixel.
+        let mut f = solid(100, 50, -100, 0);
+        f.black_out(&Rect { x: -50, y: 20, w: 1, h: 1 });
+        let c = f.crop(&Rect { x: -60, y: 10, w: 1000, h: 20 }).unwrap();
+        assert_eq!((c.width, c.height, c.origin_x, c.origin_y), (60, 20, -60, 10));
+        assert_eq!(c.bgra.len(), 60 * 20 * 4);
+        assert_eq!(c.sample(-50, 20), Some([0, 0, 0]));
+        assert_eq!(c.sample(-51, 20), Some([200, 200, 200]));
+        assert_eq!(c.sample(-61, 20), None, "cut away");
+        // Missing the frame, or empty: no frame at all.
+        assert!(solid(10, 10, 0, 0).crop(&Rect { x: 10, y: 0, w: 5, h: 5 }).is_none());
+        assert!(solid(10, 10, 0, 0).crop(&Rect { x: 2, y: 2, w: 0, h: 5 }).is_none());
+        assert!(solid(10, 10, 0, 0).crop(&Rect { x: i32::MAX, y: i32::MAX, w: i32::MAX, h: i32::MAX }).is_none());
+    }
+
+    #[test]
+    fn keep_only_greys_the_gap() {
+        let mut f = solid(10, 10, -5, 0);
+        f.keep_only(&[Rect { x: -5, y: 0, w: 3, h: 3 }, Rect { x: 2, y: 7, w: 3, h: 3 }]);
+        assert_eq!(f.sample(-5, 0), Some([200, 200, 200]));
+        assert_eq!(f.sample(4, 9), Some([200, 200, 200]));
+        assert_eq!(f.sample(0, 5), Some([128, 128, 128]));
+        assert_eq!(f.sample(-2, 0), Some([128, 128, 128]), "just right of the first box");
+        // Nothing kept: all grey.
+        let mut g = solid(4, 4, 0, 0);
+        g.keep_only(&[]);
+        assert!(g.bgra.chunks_exact(4).all(|p| p == [128, 128, 128, 255]));
     }
 
     #[test]
