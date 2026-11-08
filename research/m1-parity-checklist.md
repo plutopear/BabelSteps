@@ -4,7 +4,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Rules.** Pass means a recorded test on the real desktop shows it. Code without a test is "not tested". Unit tests alone, for behavior that depends on the real desktop, are "partial". Live results from before the 2026-11-08 hotkey and close-path changes count as partial until re-run on the current build.
 
-**Where it stands (2026-11-08, after PR #11 merged):** Pass 2, Partial 26, Not tested 2, Not built 0, Owner decision 0, Out of scope (M1) 2 (of 32; the counts equal the rows in the Summary table). Since the earlier count: PSR-1 was built and merged (PR #9, Partial until a real 30-step PDF is measured); PSR-2, PSR-3, PSR-5 and PSR-6 were built and merged (PR #11), A9 moved to Partial once Q23 settled it, and PSR-7 moved out of M1 under Q25. M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), or hardware or machine state the owner may not have (a second monitor, an elevated window).
+**Where it stands (2026-11-08, after PR #13 merged):** Pass 2, Partial 27, Not tested 1, Not built 0, Owner decision 0, Out of scope (M1) 2 (of 32; the counts equal the rows in the Summary table). Since the earlier count: PSR-10 moved from Not tested to Partial (PR #13, lock and sleep handling; simulated messages only); PSR-1 was built and merged (PR #9, Partial until a real 30-step PDF is measured); PSR-2, PSR-3, PSR-5 and PSR-6 were built and merged (PR #11), A9 moved to Partial once Q23 settled it, and PSR-7 moved out of M1 under Q25. M1 is not ready to exit. The remaining items need real clicks on the tray icon (which only the owner can make), or hardware or machine state the owner may not have (a second monitor, an elevated window).
 
 **Close to the tray, 2026-11-08 (Q21; 24 of 24, plus a quick 4 of 4 on the final build; `research/m1-results.md`):** D1 is met in tray mode, at 6 MB and 0.3% of one core with the window closed. D3 was measured warm only, at 0.66 to 0.81 s to the window. The start, note and stop shortcuts work with no window. The window is rebuilt hardened, and it stays hidden until the hardening is confirmed.
 
@@ -24,7 +24,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Owner decisions:** none left open. A9 is settled by Q23 (the PDF export counts; what remains is a PDF from a real recording) and PSR-7 by Q25 (no command line before the first release). PSR-2, PSR-3, PSR-5 and PSR-6 were decided on 2026-11-08 (Q25, Q30) and are merged into `main` (PR #11; Windows build and 211 tests passed). Not yet checked: a real PDF export with the options on, and the counts notice after a live recording. A6 is decided (Q13) and merged (PR #5); its self-test checks passed on Windows.
 
-**Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
+**Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (a real lock, sleep and wake with the owner present, and a resolution or scaling change).
 
 **Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, passed on 2026-11-08 (67 of 67, `research/m1-results.md`): typing with keystrokes off, step titles without the window title, the outline and the click marker, on our own test window. That moves the self-test half of A2, A3 and A11 forward; real apps are still untested. Known gap: taskbar buttons and caption text in newer title bars.
 
@@ -46,7 +46,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | A10 | Open and view existing Steps Recorder output (.zip containing one .mht). | Out of scope (M1) |
 | A11 | With keystroke capture off, a typing burst still becomes one step ("Typed in User name field") with no text, ended by a focus change, click or shortcut. | Partial |
 | B4 | Never record password fields as text. | Pass |
-| B12 | Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out. | Partial |
+| B12 | Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out. | Partial. Open failure: see the B12 section |
 | C1 | Entirely local: no network calls, telemetry, accounts or cloud storage. | Partial |
 | C2 | Always-visible recording indicator: a tray icon plus a visible cue (frame) on the capture target, kept out of the screenshots. | Partial |
 | C3 | Global hotkeys for start, pause, add note and stop, remappable with conflict warnings; the panic-stop hotkey always works. Defaults are Ctrl+Alt+Shift+R/P/N/X. | Partial |
@@ -169,6 +169,8 @@ Never record password fields as text.
 - **Gap:** Pass only under the tested conditions: our test window and Edge, one monitor, 100% scaling. Untested: Chrome and Firefox (the owner chose Edge only), password fields inside frames, fake masked text boxes (detection cannot see these), elevated windows, Alt+F4 closing a password window during long typing, a field replaced in place. Tested at engine level, not through the current release app.
 
 ### B12: Partial
+
+**Open failure (reported 2026-11-08, not yet root-caused):** the self-test check 'window change: a window minimized by the click never leaves its password field visible' fails on current `main` with 'IMAGE WITH THE FIELD VISIBLE', in 3 of 3 runs on the owner's PC. It passed in earlier runs before the smaller-images change (PSR-1, PR #9), so an interaction with PSR-1 is suspected (a guess). Until it is fixed and the check passes again, treat B12 as failing for the minimized-window case, whatever the rows below say. Another thread is investigating.
 
 Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out.
 
