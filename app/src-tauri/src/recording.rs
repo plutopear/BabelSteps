@@ -232,6 +232,17 @@ pub fn report_stop_failure(app: &AppHandle, err: &AppError) {
         .show(|_| {});
 }
 
+/// Stop if recording; on failure tell the user. True when nothing is left running.
+pub fn stop_and_report(app: &AppHandle) -> bool {
+    match stop_if_recording(app) {
+        Ok(()) => true,
+        Err(e) => {
+            report_stop_failure(app, &e);
+            false
+        }
+    }
+}
+
 // ---- commands ----------------------------------------------------------------
 
 #[tauri::command]
@@ -309,7 +320,9 @@ pub fn setup_hotkeys(app: &AppHandle) {
                             show_main(&app);
                         }
                     }
-                    3 => stop_if_recording(&app),
+                    3 => {
+                        stop_and_report(&app);
+                    }
                     _ => {}
                 }
             }
@@ -369,10 +382,14 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main(app),
             "pause" => toggle_pause(app),
-            "stop" => stop_if_recording(app),
+            "stop" => {
+                stop_and_report(app);
+            }
             "quit" => {
-                stop_if_recording(app);
-                app.exit(0);
+                // A failed save keeps the app open and says so.
+                if stop_and_report(app) {
+                    app.exit(0);
+                }
             }
             _ => {}
         })
