@@ -204,6 +204,46 @@ pub struct Rect {
     pub h: i32,
 }
 
+impl Rect {
+    fn edges(&self) -> (i64, i64, i64, i64) {
+        let (x, y) = (i64::from(self.x), i64::from(self.y));
+        (x, y, x + i64::from(self.w), y + i64::from(self.h))
+    }
+
+    fn from_edges(x0: i64, y0: i64, x1: i64, y1: i64) -> Option<Rect> {
+        let fits = |v: i64| i32::try_from(v).ok();
+        (x0 < x1 && y0 < y1).then_some(())?;
+        Some(Rect { x: fits(x0)?, y: fits(y0)?, w: fits(x1 - x0)?, h: fits(y1 - y0)? })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.w <= 0 || self.h <= 0
+    }
+
+    /// The overlap of two rectangles, or `None` if they do not overlap.
+    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
+        if self.is_empty() || other.is_empty() {
+            return None;
+        }
+        let (a0, b0, a1, b1) = self.edges();
+        let (c0, d0, c1, d1) = other.edges();
+        Rect::from_edges(a0.max(c0), b0.max(d0), a1.min(c1), b1.min(d1))
+    }
+
+    /// The smallest rectangle holding both. An empty rectangle adds nothing.
+    pub fn union(&self, other: &Rect) -> Rect {
+        if other.is_empty() {
+            return *self;
+        }
+        if self.is_empty() {
+            return *other;
+        }
+        let (a0, b0, a1, b1) = self.edges();
+        let (c0, d0, c1, d1) = other.edges();
+        Rect::from_edges(a0.min(c0), b0.min(d0), a1.max(c1), b1.max(d1)).unwrap_or(*self)
+    }
+}
+
 /// Build the human-readable step title from a click and what was under it.
 /// Examples: `Left-click "Save" button in Notepad`, `Left-click at (120, 340)`.
 pub fn describe_click(button: MouseButton, x: i32, y: i32, target: Option<&Target>) -> String {
@@ -391,5 +431,26 @@ mod retention_tests {
         ];
         assert!(r.apply_retention(1).is_empty());
         assert_eq!(shots(&r)[0], None);
+    }
+
+    #[test]
+    fn rect_intersect_and_union() {
+        let a = Rect { x: 0, y: 0, w: 100, h: 50 };
+        let b = Rect { x: 80, y: 40, w: 50, h: 50 };
+        assert_eq!(a.intersect(&b), Some(Rect { x: 80, y: 40, w: 20, h: 10 }));
+        assert_eq!(a.union(&b), Rect { x: 0, y: 0, w: 130, h: 90 });
+        // Touching edges do not overlap.
+        assert_eq!(a.intersect(&Rect { x: 100, y: 0, w: 10, h: 10 }), None);
+        // Negative coordinates (a monitor left of the main one).
+        let left = Rect { x: -1920, y: 0, w: 1920, h: 1080 };
+        assert_eq!(left.intersect(&Rect { x: -10, y: 10, w: 30, h: 30 }), Some(Rect { x: -10, y: 10, w: 10, h: 30 }));
+        // Empty rectangles add nothing and overlap nothing.
+        let empty = Rect { x: 500, y: 500, w: 0, h: 10 };
+        assert_eq!(a.union(&empty), a);
+        assert_eq!(empty.union(&a), a);
+        assert_eq!(a.intersect(&empty), None);
+        // Extreme values do not overflow.
+        let huge = Rect { x: i32::MAX - 1, y: 0, w: i32::MAX, h: 10 };
+        assert_eq!(huge.intersect(&a), None);
     }
 }

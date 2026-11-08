@@ -14,7 +14,7 @@ use babelsteps_core::storage::Bundle;
 use babelsteps_core::{Action, Block, Recording, StepBlock};
 use babelsteps_windows::testing::{self, Frame, Monitor};
 use babelsteps_windows::testwin::{self, TestWindow, GREEN};
-use babelsteps_windows::{Recorder, RecorderConfig, RecorderReport};
+use babelsteps_windows::{Recorder, RecorderConfig, RecorderReport, Scope};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::Ordering;
@@ -65,6 +65,14 @@ fn start(dir: &Path, name: &str, keys: bool) -> Result<Recorder> {
     let rec = bundle.load()?;
     let r = Recorder::start(bundle, rec, config(keys))?;
     ms(700); // Let capture deliver its first frames.
+    Ok(r)
+}
+
+fn start_scoped(dir: &Path, name: &str, scope: Scope) -> Result<Recorder> {
+    let bundle = Bundle::create(dir, name, name, 0)?;
+    let rec = bundle.load()?;
+    let r = Recorder::start(bundle, rec, RecorderConfig { scope, ..config(false) })?;
+    ms(700);
     Ok(r)
 }
 
@@ -444,6 +452,80 @@ fn gdi_marked(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
         cl.first().is_some_and(|s| s.screenshot.is_some() && s.description.contains("after the action")),
         format!("description: {:?}", cl.first().map(|s| s.description.clone())),
     );
+    Ok(())
+}
+
+/// A6: recording one window or one monitor. Clicks outside are not recorded,
+/// and a window's screenshot is cut to the window.
+fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let (bx, by) = win.background_point()?;
+    let m = monitor_of(bx, by)?;
+    let device = {
+        let n = m.device.iter().position(|&ch| ch == 0).unwrap_or(m.device.len());
+        String::from_utf16_lossy(&m.device[..n])
+    };
+    let ring = |f: &Frame| [(18, 0), (-18, 0), (0, 18), (0, -18)].iter().filter(|(dx, dy)| f.sample(bx + dx, by + dy) == Some(MARKER)).count();
+
+    // One window: the test window itself.
+    let r = start_scoped(dir, "scope-window", Scope::Window(win.hwnd_id()))?;
+    win.safe_click(bx, by)?;
+    ms(500);
+    let (bundle, report) = stop(r)?;
+    let cl = clicks(&report.recording);
+    let expect = testing::window_bounds(win.hwnd_id())
+        .and_then(|b| b.intersect(&babelsteps_core::Rect { x: m.x, y: m.y, w: m.w, h: m.h }));
+    let shot = match (cl.first().and_then(|s| s.screenshot.as_deref()), expect) {
+        (Some(rel), Some(e)) => Some((load(&bundle, rel, &Monitor { x: e.x, y: e.y, ..m })?, e)),
+        _ => None,
+    };
+    c.check(
+        "one window: a click in the window is recorded, its screenshot cut to the window",
+        cl.len() == 1 && shot.as_ref().is_some_and(|(f, e)| f.width as i32 == e.w && f.height as i32 == e.h && (e.w < m.w || e.h < m.h)),
+        format!(
+            "clicks {}, image {:?}, window {:?}, monitor {}x{}",
+            cl.len(),
+            shot.as_ref().map(|(f, _)| (f.width, f.height)),
+            expect.map(|e| (e.w, e.h)),
+            m.w,
+            m.h
+        ),
+    );
+    // The marker is drawn at the click, so the cut is not shifted.
+    let points = shot.as_ref().map_or(0, |(f, _)| ring(f));
+    c.check("one window: the click marker lands on the click in the cut screenshot", points == 4, format!("{points}/4 ring points red"));
+
+    // Control: scoped to another window, the same click is not recorded.
+    let other = unsafe { windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow() }.0 as isize;
+    let r = start_scoped(dir, "scope-other", Scope::Window(other))?;
+    win.safe_click(bx, by)?;
+    ms(500);
+    let (_bundle, report) = stop(r)?;
+    let n = steps(&report.recording).len();
+    c.check("one window: a click on another window is not recorded", n == 0, format!("steps {n}"));
+
+    // One monitor: the test window's monitor, whole-monitor screenshot.
+    let r = start_scoped(dir, "scope-monitor", Scope::Monitor(device.clone()))?;
+    win.safe_click(bx, by)?;
+    ms(500);
+    let (bundle, report) = stop(r)?;
+    let cl = clicks(&report.recording);
+    let dims = match cl.first().and_then(|s| s.screenshot.as_deref()) {
+        Some(rel) => Some(load(&bundle, rel, &m).map(|f| (f.width, f.height))?),
+        None => None,
+    };
+    c.check(
+        "one monitor: a click on the chosen monitor is recorded with the whole monitor",
+        cl.len() == 1 && dims == Some((m.w as u32, m.h as u32)),
+        format!("clicks {}, image {dims:?}, monitor {}x{}", cl.len(), m.w, m.h),
+    );
+
+    // A monitor that is not connected: recording refuses to start.
+    let refused = start_scoped(dir, "scope-gone", Scope::Monitor(r"\\.\MISSING-DISPLAY".into()));
+    let ok = refused.is_err();
+    if let Ok(r) = refused {
+        let _ = stop(r);
+    }
+    c.check("one monitor: a monitor that is not connected is refused", ok, "");
     Ok(())
 }
 
@@ -873,6 +955,7 @@ fn run(out: &Path) -> Result<Checks> {
         timeout_and_recovery(&mut c, &win, &work)?;
         scan_failure(&mut c, &win, &work)?;
         gdi_marked(&mut c, &win, &work)?;
+        scopes(&mut c, &win, &work)?;
         pause_and_comment(&mut c, &win, &work)?;
         frame_cue(&mut c, &win, &work)?;
         edge_clicks(&mut c, &win, &work)?;

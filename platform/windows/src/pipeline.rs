@@ -23,6 +23,7 @@ use crate::hotkeys::Hotkey;
 use crate::keys::KeyTracker;
 use crate::monitors;
 use crate::scan::{self, PasswordMemory, WinState};
+use crate::scope::{self, Scope};
 use crate::uia::{ElementInfo, UiaFaults, UiaPool, UiaStats};
 use anyhow::{bail, Result};
 use babelsteps_core::normalize::{Event, Key, Mods, Normalizer, NormalizerConfig};
@@ -51,6 +52,9 @@ const SAVE_EVERY: Duration = Duration::from_secs(2);
 /// Every visible window is rescanned this often, so the memory of password
 /// fields is fresh when a window changes right after an input.
 const REFRESH_EVERY: Duration = Duration::from_secs(5);
+
+/// A crop area that matches nothing: the step gets no screenshot.
+const NO_AREA: Rect = Rect { x: 0, y: 0, w: 0, h: 0 };
 
 pub const NOTE_NO_SCREENSHOT: &str = "Screenshot unavailable.";
 pub const NOTE_NOT_VERIFIED: &str = "This screenshot may show the moment after the action.";
@@ -85,6 +89,9 @@ pub struct RecorderConfig {
     /// Clicks on taskbar elements whose name starts with this are never
     /// recorded (the tray icon in the hidden-icons flyout, named after its tooltip).
     pub ignore_shell_elements_named: Option<String>,
+    /// A6: the whole screen (default), one monitor, or one window. Input
+    /// outside it is not recorded, and window screenshots are cut to the window.
+    pub scope: Scope,
 }
 
 impl Default for RecorderConfig {
@@ -97,6 +104,7 @@ impl Default for RecorderConfig {
             ignore_keys: Vec::new(),
             ignore_areas: None,
             ignore_shell_elements_named: None,
+            scope: Scope::Screen,
         }
     }
 }
@@ -109,6 +117,7 @@ struct CaptureOpts {
     ignore_own_windows: bool,
     ignore_keys: Vec<Hotkey>,
     ignore_areas: Option<Arc<Mutex<Vec<Rect>>>>,
+    scope: Scope,
 }
 
 /// Fault injection for the self-test. Inert unless something sets it.
@@ -149,6 +158,8 @@ pub struct RecorderStatus {
     /// Continuous capture is running, so screenshots can show the state before each action.
     pub before_state_available: bool,
     pub uia: UiaStats,
+    /// Set when the chosen window has closed or the chosen monitor is gone.
+    pub scope_lost: Option<String>,
     /// Things the user should know, such as "screenshots withheld: a window could not be checked".
     pub warnings: Vec<String>,
 }
@@ -222,6 +233,7 @@ impl Recorder {
             // boxes would miss the password fields.
             bail!("recording needs per-monitor DPI awareness, which this process does not have");
         }
+        scope::validate(&config.scope)?;
         let faults = Arc::new(Faults::default());
         let status = Arc::new(Mutex::new(RecorderStatus::default()));
         let in_flight = Arc::new(AtomicUsize::new(0));
@@ -236,6 +248,7 @@ impl Recorder {
             ignore_own_windows: config.ignore_own_windows,
             ignore_keys: config.ignore_keys.clone(),
             ignore_areas: config.ignore_areas.clone(),
+            scope: config.scope.clone(),
         };
         let (cap_tx, cap_rx) = unbounded::<Captured>();
         let analysis = {
@@ -393,7 +406,7 @@ fn capture_loop(
     let over_budget = Arc::new(AtomicU64::new(0));
     let over = over_budget.clone();
     let budget = in_flight.clone();
-    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64| -> Option<Shot> {
+    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64, crop: Option<Rect>| -> Option<Shot> {
         let mons = capturer.monitors();
         let bytes = monitors::index_for(mons, x, y).map_or(0, |i| mons[i].w.max(0) as usize * mons[i].h.max(0) as usize * 4);
         if budget.load(Ordering::SeqCst) + bytes > FRAME_BUDGET_BYTES {
@@ -405,6 +418,12 @@ fn capture_loop(
         let ticket = Ticket(budget.clone(), bytes);
         match capturer.grab(x, y, t) {
             Ok(Grabbed { frame, before_verified }) => {
+                // One window (A6): cut the frame down before anything else
+                // sees it, so the scan and the writer only get the window.
+                let frame = match crop {
+                    Some(r) => frame.crop(&r)?,
+                    None => frame,
+                };
                 // The windows on screen now, a few ms after the input, which is
                 // as close to the frame as can be had.
                 let area = frame_area(&frame);
@@ -423,6 +442,8 @@ fn capture_loop(
                 h.check_alive();
             }
             publish_capture(&status, &capturer, &in_flight, &over_budget);
+            let lost = scope::lost(&opts.scope, capturer.monitors()).map(str::to_string);
+            status.lock().unwrap_or_else(|e| e.into_inner()).scope_lost = lost;
         }
         if let Some(ev) = held.take() {
             handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
@@ -481,7 +502,7 @@ fn handle_raw(
     keys: &mut KeyTracker,
     last_was_text: &mut bool,
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Rect>) -> Option<Shot>,
     out: &Sender<Captured>,
 ) {
     match ev {
@@ -493,8 +514,26 @@ fn handle_raw(
             if (opts.only_injected && !injected) || paused || in_ignored_area || (opts.ignore_own_windows && is_own_window_at(x, y)) {
                 return;
             }
+            let crop = match &opts.scope {
+                Scope::Screen => None,
+                Scope::Monitor(device) => {
+                    let mons = capturer.monitors();
+                    if !monitors::index_for(mons, x, y).is_some_and(|i| &mons[i].device_name() == device) {
+                        return; // On another monitor: not recorded.
+                    }
+                    None
+                }
+                Scope::Window(target) => {
+                    let root = root_at(x, y);
+                    if !scope::window_in_scope(root, *target) {
+                        return; // On another window: not recorded.
+                    }
+                    // No area (the window vanished): the step has no picture.
+                    Some(scope::crop_area(*target, Some(root)).unwrap_or(NO_AREA))
+                }
+            };
             *last_was_text = false;
-            let shot = grab(capturer, x, y, t);
+            let shot = grab(capturer, x, y, t, crop);
             let _ = out.send(Captured::Click { button, x, y, t, shot });
         }
         RawEvent::KeyUp { vk, scan, injected, .. } => {
@@ -514,6 +553,26 @@ fn handle_raw(
             if is_hotkey || paused || (opts.ignore_own_windows && foreground_is_own()) {
                 return;
             }
+            let crop = match &opts.scope {
+                Scope::Screen => None,
+                Scope::Monitor(device) => {
+                    let mons = capturer.monitors();
+                    let on = focus_point(mons).and_then(|(x, y)| monitors::index_for(mons, x, y)).is_some_and(|i| &mons[i].device_name() == device);
+                    if !on {
+                        *last_was_text = false; // Back in scope, the first key gets a frame.
+                        return;
+                    }
+                    None
+                }
+                Scope::Window(target) => {
+                    let fg = unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) }.0 as isize;
+                    if !scope::window_in_scope(fg, *target) {
+                        *last_was_text = false;
+                        return; // Typed into another window: not recorded.
+                    }
+                    Some(scope::crop_area(*target, Some(fg)).unwrap_or(NO_AREA))
+                }
+            };
             let shortcut = mods.ctrl || mods.alt || mods.meta;
             let is_text = matches!(key, Key::Text(_)) && !shortcut;
             // A frame only for keys that can start a step: the first key of a run
@@ -527,7 +586,7 @@ fn handle_raw(
                 opts.keystrokes_enabled && !matches!(key, Key::Backspace)
             };
             *last_was_text = is_text;
-            let shot = if wants_frame { grab_focus(capturer, grab, t) } else { None };
+            let shot = if wants_frame { grab_focus(capturer, grab, t, crop) } else { None };
             let _ = out.send(Captured::Key { key, mods, t, shot });
         }
         RawEvent::Foreground { hwnd, t } => {
@@ -545,9 +604,17 @@ fn handle_raw(
 /// The frame for a key press: the monitor holding the foreground window.
 fn grab_focus(
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Rect>) -> Option<Shot>,
     t: i64,
+    crop: Option<Rect>,
 ) -> Option<Shot> {
+    let point = focus_point(capturer.monitors())?;
+    grab(capturer, point.0, point.1, t, crop)
+}
+
+/// A point on the monitor that holds the foreground window: its centre, or
+/// its top-left clamped onto a monitor when the centre is off-screen.
+fn focus_point(monitors: &[monitors::Monitor]) -> Option<(i32, i32)> {
     let mut r = windows::Win32::Foundation::RECT::default();
     let fg = unsafe { GetForegroundWindow() };
     if unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowRect(fg, &mut r) }.is_err() {
@@ -555,14 +622,12 @@ fn grab_focus(
     }
     let cx = ((i64::from(r.left) + i64::from(r.right)) / 2) as i32;
     let cy = ((i64::from(r.top) + i64::from(r.bottom)) / 2) as i32;
-    let mons: Vec<_> = capturer.monitors().iter().copied().filter(|m| m.w > 0 && m.h > 0).collect();
-    let point = if monitors::index_for(&mons, cx, cy).is_some() {
-        (cx, cy)
+    let mons: Vec<_> = monitors.iter().copied().filter(|m| m.w > 0 && m.h > 0).collect();
+    if monitors::index_for(&mons, cx, cy).is_some() {
+        Some((cx, cy))
     } else {
-        // Centre off-screen (window partly outside): use its top-left, clamped.
-        mons.first().map(|m| (r.left.clamp(m.x, m.x + m.w - 1), r.top.clamp(m.y, m.y + m.h - 1)))?
-    };
-    grab(capturer, point.0, point.1, t)
+        mons.first().map(|m| (r.left.clamp(m.x, m.x + m.w - 1), r.top.clamp(m.y, m.y + m.h - 1)))
+    }
 }
 
 struct KeyScan {
@@ -976,6 +1041,9 @@ impl Analysis {
         st.last_scan_windows = self.timing.scan_windows;
         st.last_scan_hidden = self.timing.scan_hidden;
         let mut warnings = Vec::new();
+        if let Some(lost) = &st.scope_lost {
+            warnings.push(lost.clone());
+        }
         if st.frames_over_budget > 0 {
             warnings.push(format!("{} screenshot(s) skipped: the computer could not keep up", st.frames_over_budget));
         }
