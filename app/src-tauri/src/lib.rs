@@ -28,6 +28,7 @@ pub fn run() {
             commands::read_screenshot,
             commands::export_markdown,
             commands::export_pdf,
+            commands::export_single_html,
             recording::recording_status,
             recording::set_editor_unsaved,
             recording::start_recording,

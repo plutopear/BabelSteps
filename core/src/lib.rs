@@ -1,6 +1,7 @@
 //! BabelSteps core: platform-independent document model and exporters.
 //! No platform code and no networking belong in this crate.
 
+mod base64;
 pub mod export;
 pub mod export_options;
 pub mod html;

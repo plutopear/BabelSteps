@@ -11,7 +11,7 @@
     onclose,
   }: { title: string; firstStepMs?: number; save: () => Promise<boolean>; onclose: () => void } = $props();
 
-  let format = $state<"pdf" | "markdown">("pdf");
+  let format = $state<"pdf" | "markdown" | "html">("pdf");
   let headerFooter = $state(false);
   // PSR-2 and PSR-6: both off by default, every time the dialog opens.
   let stepTimes = $state(false);
@@ -27,14 +27,14 @@
 
   function fileName() {
     const base = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "BabelSteps guide";
-    return base + ".pdf";
+    return base + (format === "html" ? ".html" : ".pdf");
   }
 
   async function run() {
     error = "";
     result = null;
     try {
-      const dest = format === "pdf" ? await pickSavePath(fileName()) : await pickFolder();
+      const dest = format === "markdown" ? await pickFolder() : await pickSavePath(fileName(), format);
       if (!dest) return; // the user cancelled the picker
       busy = true;
       say("Saving, then exporting.");
@@ -50,7 +50,11 @@
         utcOffsetMinutes: -new Date(firstStepMs || Date.now()).getTimezoneOffset(),
       };
       const summary =
-        format === "pdf" ? await api.exportPdf(dest, headerFooter, choices) : await api.exportMarkdown(dest, choices);
+        format === "pdf"
+          ? await api.exportPdf(dest, headerFooter, choices)
+          : format === "html"
+            ? await api.exportSingleHtml(dest, choices)
+            : await api.exportMarkdown(dest, choices);
       result = { summary, where: dest };
       say("Export finished.");
     } catch (e) {
@@ -86,6 +90,7 @@
       <legend>Format</legend>
       <label><input type="radio" bind:group={format} value="pdf" /> PDF document (one file)</label>
       <label><input type="radio" bind:group={format} value="markdown" /> Markdown (a folder with document.md and images)</label>
+      <label><input type="radio" bind:group={format} value="html" /> Single HTML file (one file with the pictures inside)</label>
     </fieldset>
 
     {#if format === "pdf"}
@@ -93,6 +98,11 @@
         <input type="checkbox" bind:checked={headerFooter} disabled={busy} />
         Add a header and footer (title and page number)
       </label>
+    {:else if format === "html"}
+      <p class="hint">
+        The pictures are stored inside the file, so it is about a third larger than the pictures
+        themselves. Open it in any web browser. It does not load anything from the internet.
+      </p>
     {:else}
       <p class="hint">You will choose a folder. It must be empty.</p>
     {/if}
@@ -130,7 +140,7 @@
     <div class="actions">
       <button type="button" onclick={onclose} disabled={busy}>Cancel</button>
       <button type="button" class="primary" onclick={run} disabled={!ready}>
-        {format === "pdf" ? "Choose file and export…" : "Choose folder and export…"}
+        {format === "markdown" ? "Choose folder and export…" : "Choose file and export…"}
       </button>
     </div>
     {#if !c1 || !c2 || !c3}

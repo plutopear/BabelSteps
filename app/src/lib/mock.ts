@@ -124,7 +124,7 @@ function busy(): never {
 export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promise<unknown> {
   await wait(60);
   if (R.active && ["save_recording", "open_recording", "create_recording", "close_recording",
-    "rename_recording", "delete_recording", "export_markdown", "export_pdf"].includes(cmd)) busy();
+    "rename_recording", "delete_recording", "export_markdown", "export_pdf", "export_single_html"].includes(cmd)) busy();
   switch (cmd) {
     case "recording_status":
       return recStatus();
@@ -242,6 +242,9 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       return summary(current());
     case "export_pdf":
       await wait(1200);
+      return summary(current());
+    case "export_single_html":
+      await wait(900);
       return summary(current());
   }
   throw { kind: "invalid_argument", message: "" };

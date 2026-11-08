@@ -88,6 +88,8 @@ export const api = {
     call<ExportSummary>("export_markdown", { outDir, choices }),
   exportPdf: (outPath: string, headerFooter: boolean, choices: ExportChoices) =>
     call<ExportSummary>("export_pdf", { outPath, headerFooter, choices }),
+  exportSingleHtml: (outPath: string, choices: ExportChoices) =>
+    call<ExportSummary>("export_single_html", { outPath, choices }),
   recordingStatus: () => call<RecordingStatus>("recording_status"),
   setEditorUnsaved: (unsaved: boolean) => call<void>("set_editor_unsaved", { unsaved }),
   startRecording: (keystrokes: boolean, target: CaptureTarget = { kind: "screen" }) =>
@@ -105,13 +107,16 @@ export const api = {
 
 // File pickers go through the dialog plugin's commands (already allowed:
 // dialog:allow-open and dialog:allow-save), so no extra JS package is needed.
-export async function pickSavePath(defaultName: string): Promise<string | null> {
+export async function pickSavePath(defaultName: string, kind: "pdf" | "html" = "pdf"): Promise<string | null> {
   if (!inTauri) {
     if (import.meta.env.DEV) return "C:\\Sample\\" + defaultName;
     return null;
   }
   const r = await invoke<string | null>("plugin:dialog|save", {
-    options: { defaultPath: defaultName, filters: [{ name: "PDF document", extensions: ["pdf"] }] },
+    options: {
+      defaultPath: defaultName,
+      filters: [kind === "pdf" ? { name: "PDF document", extensions: ["pdf"] } : { name: "HTML file", extensions: ["html"] }],
+    },
   });
   return r ?? null;
 }
