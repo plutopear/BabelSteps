@@ -1,7 +1,11 @@
 # Fails if the app could contain network code: a networking crate, a Tauri
 # http/shell/opener/updater/websocket plugin, tokio's net feature, or a
 # capability that grants one. Prints problems only. Run by check.ps1.
-$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+# Refresh PATH only when cargo is missing (a shell started before Rust was
+# installed). CI runners already have it, and resetting PATH there would drop it.
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+}
 Set-Location (git rev-parse --show-toplevel)
 
 $denyCrates = 'hyper|hyper-util|reqwest|mio|socket2|h2|ureq|curl|isahc|rustls|native-tls|openssl|tungstenite|tokio-tungstenite|surf|attohttpc'

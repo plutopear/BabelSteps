@@ -1,5 +1,9 @@
 # Build and test the workspace. Prints only what matters; the full log goes to a file.
-$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+# Refresh PATH only when cargo is missing (a shell started before Rust was
+# installed). CI runners already have it, and resetting PATH there would drop it.
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+}
 Set-Location (git rev-parse --show-toplevel)
 
 $log = Join-Path $env:TEMP "babelsteps-check.log"

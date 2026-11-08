@@ -1,0 +1,13 @@
+[package]
+name = "babelsteps-privacy-checks"
+description = "Tests that scan the repository for code that could break the privacy promise. Never shipped."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+serde_json = "1"

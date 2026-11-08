@@ -9,6 +9,6 @@ description: Build and test the whole BabelSteps Rust workspace and report only 
 powershell -NoProfile -File .claude/skills/babelsteps-check/scripts/check.ps1
 ```
 
-It prints errors, failed tests, a warning count, and a pass or fail line. The full output goes to a log file, and the script prints its path. If a failure needs more detail, search that log with Grep rather than reading all of it.
+It prints errors, failed tests, a warning count, and a pass or fail line. The tests include the privacy scans in `checks/` (network APIs in code, the content security policy, Tauri permissions), and the script then runs `no-network.ps1`. GitHub Actions runs the same checks plus a Linux runtime socket test on every pull request. The full output goes to a log file, and the script prints its path. If a failure needs more detail, search that log with Grep rather than reading all of it.
 
 A pass means the code compiles and the unit tests pass. It says nothing about capture behavior on a real desktop; that needs the `capture-selftest` skill.
