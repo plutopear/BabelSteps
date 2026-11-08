@@ -163,6 +163,13 @@ fn is_empty_block(b: &Block) -> bool {
     }
 }
 
+/// True when the first block is a level-1 heading whose text equals the title
+/// (case-sensitive, after trimming). The exporters then write that heading as
+/// the document title only, so the file has exactly one H1.
+pub(crate) fn first_block_repeats_title(rec: &Recording) -> bool {
+    matches!(rec.blocks.first(), Some(Block::Heading { level, text, .. }) if (*level).clamp(1, 6) == 1 && text.trim() == rec.title.trim())
+}
+
 pub fn to_markdown(rec: &Recording) -> String {
     to_markdown_with(rec, &ExportOptions::default())
 }
@@ -177,7 +184,8 @@ pub fn to_markdown_with(rec: &Recording, opts: &ExportOptions) -> String {
     }
 
     let mut step_no = 0usize;
-    for (i, block) in rec.blocks.iter().enumerate() {
+    let skip = usize::from(first_block_repeats_title(rec));
+    for (i, block) in rec.blocks.iter().enumerate().skip(skip) {
         let rendered: Option<String> = match block {
             Block::Heading { level, text, .. } => {
                 let lvl = (*level).clamp(1, 6) as usize;
@@ -373,6 +381,39 @@ The *final* dialog
         assert_eq!(to_markdown(&full_fixture()), expected.replace("<BR>
 ", "  
 "));
+    }
+
+    fn h1_count(md: &str) -> usize {
+        md.lines().filter(|l| *l == "#" || l.starts_with("# ")).count()
+    }
+
+    #[test]
+    fn first_block_h1_equal_to_title_gives_one_h1() {
+        let mut rec = Recording::new("r", "Reset a password", 0);
+        rec.blocks.push(Block::Heading { id: "h".into(), level: 1, text: "  Reset a password ".into() });
+        rec.blocks.push(Block::Text { id: "t".into(), text: "Intro.".into() });
+        let md = to_markdown(&rec);
+        assert_eq!(md, "# Reset a password\n\nIntro.\n");
+        assert_eq!(h1_count(&md), 1);
+    }
+
+    #[test]
+    fn h1_that_differs_from_the_title_keeps_both() {
+        // Different text and different case.
+        for text in ["Something else", "reset a password"] {
+            let mut rec = Recording::new("r", "Reset a password", 0);
+            rec.blocks.push(Block::Heading { id: "h".into(), level: 1, text: text.into() });
+            assert_eq!(to_markdown(&rec), format!("# Reset a password\n\n# {text}\n"));
+        }
+        // A matching H1 that is not the first block is kept.
+        let mut rec = Recording::new("r", "Reset a password", 0);
+        rec.blocks.push(Block::Text { id: "t".into(), text: "Intro.".into() });
+        rec.blocks.push(Block::Heading { id: "h".into(), level: 1, text: "Reset a password".into() });
+        assert_eq!(to_markdown(&rec), "# Reset a password\n\nIntro.\n\n# Reset a password\n");
+        // A level-2 heading with the title's text is an ordinary heading.
+        let mut rec = Recording::new("r", "Reset a password", 0);
+        rec.blocks.push(Block::Heading { id: "h".into(), level: 2, text: "Reset a password".into() });
+        assert_eq!(to_markdown(&rec), "# Reset a password\n\n## Reset a password\n");
     }
 
     #[test]
