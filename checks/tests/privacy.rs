@@ -57,6 +57,50 @@ fn rust_scan_catches_planted_network_code() {
     assert!(scan_rust("ok.rs", "// We never use std::net here.\nfn main() {}").is_empty());
 }
 
+// ---- Logging ---------------------------------------------------------------
+// A log line can carry what the user typed or a window title. Product code
+// writes none; only the test tools, which never ship, print.
+
+/// Test tools that print on purpose. Each is built only with the `selftest`
+/// feature, which a release build never enables.
+fn may_print(label: &str) -> bool {
+    label.starts_with("platform/windows/src/bin/") || label == "app/src-tauri/src/selftest.rs" || label.starts_with("spikes/")
+}
+
+#[test]
+fn product_rust_code_logs_and_prints_nothing() {
+    let files: Vec<_> = rust_dirs().iter().flat_map(|d| files_under(d, &["rs"])).collect();
+    let mut scanned = 0;
+    let mut problems = Vec::new();
+    for f in &files {
+        let l = label(f);
+        if may_print(&l) {
+            continue;
+        }
+        scanned += 1;
+        problems.extend(scan_rust_logging(&l, &read(f)));
+    }
+    assert!(scanned > 20, "scan only reached {scanned} files");
+    fail_on(problems, "log or print in product Rust code");
+}
+
+#[test]
+fn frontend_logs_only_error_kinds() {
+    let files = files_under(&root().join("app/src"), &["ts", "js", "svelte"]);
+    assert!(files.iter().any(|f| label(f) == "app/src/lib/api.ts"), "scan did not reach api.ts");
+    let problems = files.iter().flat_map(|f| scan_frontend_logging(&label(f), &read(f))).collect();
+    fail_on(problems, "console output in the frontend");
+}
+
+#[test]
+fn print_exemptions_are_only_the_test_tools() {
+    assert!(may_print("platform/windows/src/bin/lock_live.rs"));
+    assert!(may_print("app/src-tauri/src/selftest.rs"));
+    for product in ["core/src/pii.rs", "platform/windows/src/capture.rs", "app/src-tauri/src/commands.rs"] {
+        assert!(!may_print(product), "{product}");
+    }
+}
+
 // ---- windows crate features -----------------------------------------------
 
 #[test]

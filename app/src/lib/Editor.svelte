@@ -6,6 +6,8 @@
   import ExportDialog from "./ExportDialog.svelte";
   import Modal from "./Modal.svelte";
   import StepShot from "./StepShot.svelte";
+  import FormatField from "./FormatField.svelte";
+  import { canMergeWithNext, mergeWithNext } from "./blocks";
   import type { Block, CalloutKind, CaptureTarget, CaptureTargets, Recording } from "./types";
 
   let { initial, onback, focusId = null }: { initial: Recording; onback: () => void; focusId?: string | null } = $props();
@@ -21,7 +23,8 @@
   let showExport = $state(false);
   let confirmBack = $state(false);
   let activeId = $state<string | null>(null);
-  let undo = $state<{ block: Block; index: number } | null>(null);
+  // One undo step: `restore` goes back at `index`, replacing the block `replaceId` (a merge) when set.
+  let undo = $state<{ restore: Block[]; index: number; replaceId?: string; what: "delete" | "merge" } | null>(null);
   let root: HTMLElement | undefined = $state();
 
   function newId() {
@@ -96,6 +99,7 @@
   const addText = () => insert({ type: "text", id: newId(), text: "" });
   const addHeading = () => insert({ type: "heading", id: newId(), level: 2, text: "" });
   const addCallout = (kind: CalloutKind) => insert({ type: "callout", id: newId(), kind, text: "" });
+  const addList = () => insert({ type: "list", id: newId(), ordered: false, items: [""] });
 
   function move(i: number, d: -1 | 1) {
     const j = i + d;
@@ -109,7 +113,7 @@
 
   function remove(i: number) {
     const [b] = rec.blocks.splice(i, 1);
-    undo = { block: b, index: i };
+    undo = { restore: [b], index: i, what: "delete" };
     activeId = null;
     say("Block deleted. Use Undo delete to bring it back.");
     const next = rec.blocks[Math.min(i, rec.blocks.length - 1)];
@@ -117,13 +121,31 @@
     else tick().then(() => root?.querySelector<HTMLElement>("[data-undo]")?.focus());
   }
 
+  function merge(i: number) {
+    const merged = mergeWithNext(rec.blocks, i);
+    if (!merged) return;
+    const originals = $state.snapshot(rec.blocks.slice(i, i + 2)) as Block[];
+    rec.blocks.splice(i, 2, merged[i]);
+    undo = { restore: originals, index: i, replaceId: merged[i].id, what: "merge" };
+    say("Merged with the next step. Use Undo merge to split them again.");
+    focusIn(merged[i].id, "[data-act]");
+  }
+
   function undoDelete() {
     if (!undo) return;
-    rec.blocks.splice(Math.min(undo.index, rec.blocks.length), 0, undo.block);
-    const id = undo.block.id;
+    const { restore, replaceId, what } = undo;
+    let at = Math.min(undo.index, rec.blocks.length);
+    if (replaceId) {
+      const j = rec.blocks.findIndex((b) => b.id === replaceId);
+      if (j >= 0) {
+        rec.blocks.splice(j, 1);
+        at = j;
+      }
+    }
+    rec.blocks.splice(at, 0, ...restore);
     undo = null;
-    say("Block restored.");
-    focusIn(id, "[data-act]");
+    say(what === "merge" ? "Merge undone." : "Block restored.");
+    focusIn(restore[0].id, "[data-act]");
   }
 
   function blockKey(e: KeyboardEvent, i: number) {
@@ -307,8 +329,9 @@
     <button type="button" onclick={() => addCallout("note")}>Note</button>
     <button type="button" onclick={() => addCallout("tip")}>Tip</button>
     <button type="button" onclick={() => addCallout("warning")}>Warning</button>
+    <button type="button" onclick={addList}>List</button>
     {#if undo}
-      <button type="button" data-undo onclick={undoDelete}>Undo delete</button>
+      <button type="button" data-undo onclick={undoDelete}>{undo.what === "merge" ? "Undo merge" : "Undo delete"}</button>
     {/if}
   </div>
   <p class="hint">
@@ -343,6 +366,9 @@
           <span class="spacer"></span>
           <button type="button" data-act="up" disabled={i === 0} onclick={() => move(i, -1)} aria-label={`Move block ${i + 1} up`}>Move up</button>
           <button type="button" data-act="down" disabled={i === rec.blocks.length - 1} onclick={() => move(i, 1)} aria-label={`Move block ${i + 1} down`}>Move down</button>
+          {#if canMergeWithNext(rec.blocks, i)}
+            <button type="button" data-act="merge" onclick={() => merge(i)} aria-label={`Merge block ${i + 1} with next step`}>Merge with next step</button>
+          {/if}
           <button type="button" data-act="delete" class="danger" onclick={() => remove(i)} aria-label={`Delete block ${i + 1}`}>Delete</button>
         </div>
 
@@ -350,9 +376,7 @@
           <label>Title
             <input type="text" data-first bind:value={block.title} />
           </label>
-          <label>Description
-            <textarea rows="3" bind:value={block.description}></textarea>
-          </label>
+          <FormatField label="Description" rows={3} value={block.description} onchange={(v) => (block.description = v)} />
           {#if block.action.kind === "text"}
             <div class="typed">
               <span class="label">Typed text recorded for this step (check it before exporting)</span>
@@ -379,9 +403,7 @@
             </label>
           </div>
         {:else if block.type === "text"}
-          <label>Text
-            <textarea rows="4" data-first bind:value={block.text}></textarea>
-          </label>
+          <FormatField label="Text" rows={4} first value={block.text} onchange={(v) => (block.text = v)} />
         {:else if block.type === "callout"}
           <div class="row">
             <label>Kind
@@ -391,20 +413,18 @@
                 <option value="warning">Warning</option>
               </select>
             </label>
-            <label class="grow">Text
-              <textarea rows="2" data-first bind:value={block.text}></textarea>
-            </label>
+            <FormatField label="Text" rows={2} first value={block.text} onchange={(v) => (block.text = v)} />
           </div>
         {:else if block.type === "list"}
           <label class="check"><input type="checkbox" bind:checked={block.ordered} /> Numbered list</label>
-          <label>Items (one per line)
-            <textarea
-              rows="4"
-              data-first
-              value={block.items.join("\n")}
-              oninput={(e) => (block.items = e.currentTarget.value.split("\n"))}
-            ></textarea>
-          </label>
+          <FormatField
+            label="Items (one per line)"
+            rows={4}
+            first
+            perLine
+            value={block.items.join("\n")}
+            onchange={(v) => (block.items = v.split("\n"))}
+          />
         {:else if block.type === "image"}
           <label>Caption
             <input type="text" data-first bind:value={block.caption} />

@@ -149,6 +149,54 @@ pub fn scan_rust(label: &str, src: &str) -> Vec<String> {
     find_terms(label, &strip_rust_comments(src), RUST_NETWORK_APIS)
 }
 
+/// Rust macros that write text somewhere a person or a log file could read it.
+/// Product code must not use them: a log line is the easiest way for a typed
+/// password, a window title or a document sentence to end up on disk or in a
+/// bug report. The test tools (`bin/`, `selftest.rs`) print on purpose and are
+/// exempted by path in `tests/privacy.rs`.
+pub const RUST_LOGGING_MACROS: &[&str] = &[
+    "println!", "eprintln!", "print!", "eprint!", "dbg!", "log::", "tracing::", "debug!(", "info!(", "warn!(",
+    "error!(", "trace!(",
+];
+
+/// True when `term` appears in `line` and is not the tail of a longer name, so
+/// `log::` does not match `tauri_plugin_dialog::` and `info!(` does not match
+/// `my_info!(`.
+fn has_name(line: &str, term: &str) -> bool {
+    line.match_indices(term).any(|(at, _)| {
+        !line[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
+}
+
+/// Rust source that logs or prints outside a comment.
+pub fn scan_rust_logging(label: &str, src: &str) -> Vec<String> {
+    // `eprint!` and `print!` also match inside `eprintln!`/`println!`; the
+    // report names the first hit per line only, to keep failures readable.
+    let stripped = strip_rust_comments(src);
+    let mut problems = Vec::new();
+    for (n, line) in stripped.lines().enumerate() {
+        if let Some(term) = RUST_LOGGING_MACROS.iter().find(|t| has_name(line, t)) {
+            problems.push(format!("{label}:{}: writes output with `{term}`", n + 1));
+        }
+    }
+    problems
+}
+
+/// Frontend code that writes to the browser console. The one allowed form
+/// logs only the *kind* of an error (`console.error("error kind: ...")`), never
+/// a message or a value, because messages can quote what the user typed.
+pub fn scan_frontend_logging(label: &str, src: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (n, line) in src.lines().enumerate() {
+        let Some(at) = line.find("console.") else { continue };
+        let call = &line[at..];
+        if !call.starts_with("console.error(\"error kind") {
+            problems.push(format!("{label}:{}: console output other than `console.error(\"error kind ...\")`", n + 1));
+        }
+    }
+    problems
+}
+
 /// A Cargo.toml that turns on a networking feature of the `windows` crate.
 /// Only quoted feature names are checked, so comments and package names that
 /// merely contain a word like "Web" do not count.
@@ -227,5 +275,24 @@ mod tests {
         let s = strip_rust_comments("a // std::net\n/* TcpStream /* nested */ */b \"// kept\"");
         assert!(!s.contains("std::net") && !s.contains("TcpStream"));
         assert!(s.contains('a') && s.contains('b') && s.contains("\"// kept\""));
+    }
+
+    #[test]
+    fn logging_scan_flags_prints_and_ignores_comments() {
+        assert!(!scan_rust_logging("a.rs", "fn f() { println!(\"{}\", title); }").is_empty());
+        assert!(!scan_rust_logging("a.rs", "dbg!(step);").is_empty());
+        assert!(!scan_rust_logging("a.rs", "log::info!(\"x\");").is_empty());
+        assert!(scan_rust_logging("a.rs", "// println!(\"explained\")\nfn f() {}").is_empty());
+        assert!(scan_rust_logging("a.rs", "let formatted = format!(\"{a}\");").is_empty());
+        assert!(scan_rust_logging("a.rs", "use tauri_plugin_dialog::DialogExt;").is_empty());
+        assert!(!scan_rust_logging("a.rs", "x(); log::warn!(\"y\");").is_empty());
+    }
+
+    #[test]
+    fn frontend_logging_scan_allows_only_error_kinds() {
+        assert!(scan_frontend_logging("a.ts", "console.error(\"error kind:\", kind);").is_empty());
+        for bad in ["console.log(doc)", "console.error(e)", "console.warn(\"x\")", "console.debug(1)"] {
+            assert!(!scan_frontend_logging("a.ts", bad).is_empty(), "{bad}");
+        }
     }
 }

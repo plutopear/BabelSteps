@@ -537,4 +537,36 @@ mod tests {
         let r = export_markdown(&rec, src.path(), out.path());
         assert!(matches!(r, Err(ExportError::ConflictingRedactions { .. })));
     }
+
+    /// A picture inside the bundle that is really a link to a file outside it
+    /// must not be copied into the export.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_out_of_the_bundle_is_refused_and_writes_nothing() {
+        let src = TempDir::new("src");
+        let outside = TempDir::new("outside");
+        let out = TempDir::new("out");
+        let secret = outside.path().join("secret.png");
+        std::fs::write(&secret, crate::testing::solid_png(8, 8, [1, 2, 3, 255])).unwrap();
+        std::fs::create_dir(src.path().join("images")).unwrap();
+        std::os::unix::fs::symlink(&secret, src.path().join("images/step-001.png")).unwrap();
+        let rec = with_shot("images/step-001.png");
+        let dest = out.path().join("o");
+        assert!(matches!(export_markdown(&rec, src.path(), &dest), Err(ExportError::UnsafePath { .. })));
+        assert!(matches!(prepare_html_export(&rec, src.path(), &dest), Err(ExportError::UnsafePath { .. })));
+        assert!(!dest.exists(), "nothing may be written");
+    }
+
+    /// A link that stays inside the bundle is fine.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_within_the_bundle_still_exports() {
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        std::fs::create_dir(src.path().join("images")).unwrap();
+        std::fs::write(src.path().join("images/real.png"), crate::testing::solid_png(8, 8, [1, 2, 3, 255])).unwrap();
+        std::os::unix::fs::symlink(src.path().join("images/real.png"), src.path().join("images/step-001.png")).unwrap();
+        let r = export_markdown(&with_shot("images/step-001.png"), src.path(), &out.path().join("o"));
+        assert!(r.is_ok(), "{r:?}");
+    }
 }
