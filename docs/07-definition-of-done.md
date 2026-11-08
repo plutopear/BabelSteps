@@ -51,11 +51,11 @@ Done when a recording becomes a guide the owner would hand to a user: edited, re
 | --- | --- | --- | --- |
 | 2.1 | With keystrokes on, typing groups per field, shortcuts are named, passwords never appear (B1 to B4) | Self-test with keystrokes on, Notepad and Edge | Partial |
 | 2.2 | Stopping opens a numbered guide with a picture and caption per step (B5) | Live app run | Partial |
-| 2.3 | Editor edits, reorders, deletes, merges and inserts steps, text, headings, lists and images, with basic formatting; a shortcut adds a step while recording (B6, B11) | Live editor run against a written list of actions | Not checked |
+| 2.3 | Editor edits, reorders, deletes, merges and inserts steps, text, headings, lists and images, with basic formatting; a shortcut adds a step while recording (B6, B11) | Live editor run against a written list of actions. Add list, Bold, Italic, Underline, Code and Merge with next step are built (PR #29, 17 Node tests); nothing has been clicked in the real app | Not checked |
 | 2.4 | Markdown export, import, export gives the same file; it pastes cleanly into one ticketing tool the owner names (B6, B9, E2) | Golden-file test plus a paste test. Exports write one title heading when the first block repeats it (PR #28). A single-file HTML export is also built (B10, PR #30; not opened in a browser from the real app) | Partial |
 | 2.5 | PDF is US Letter, header and footer optional, print-friendly, matches its golden file (B8, E6) | Golden-file test (only HTML has one today) | Partial |
 | 2.6 | Manual black-out boxes; exports never contain the hidden pixels (B7) | Pixel check in exported files | Partial |
-| 2.7 | Pre-export review of every step, typed-text PII pre-marked, with a reminder that detection can miss things (B13 typed text, B14, E5; screenshot detection is after release, Q27) | Live run with planted test data | Not checked |
+| 2.7 | Pre-export review of every step, typed-text PII pre-marked, with a reminder that detection can miss things (B13 typed text, B14, E5; screenshot detection is after release, Q27) | Live run with planted test data. Custom words and patterns for typed text are built (PR #33) but not tested in a live recording; the pre-export review is not merged yet | Not checked |
 | 2.8 | 100 real-screenshot steps export to PDF in under 10 s on the Q26 laptop (D5) | Timed run | Partial |
 | 2.9 | Note, Tip and Warning callouts and the two templates exist (E1, E3) | Live editor run. The two templates are built (E3, PR #25) and tested in code only: no live recording into a template and the picker not clicked; callouts (E1) not rechecked here | Not checked |
 | 2.10 | The owner turns a real recording into a guide and exports both formats | Owner | Not started |
