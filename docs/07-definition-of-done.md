@@ -29,15 +29,15 @@ Done when a Steps Recorder user can switch and lose nothing they rely on, and Ba
 
 | # | Done when | Checked by | Status |
 | --- | --- | --- | --- |
-| 1.1 | Every parity checklist item is Pass, or moved out of M1 with a written reason (Q22 for hardware gaps) | Parity checklist (2 of 32 Pass on 2026-11-08) | Partial |
+| 1.1 | Every parity checklist item is Pass, or moved out of M1 with a written reason (Q22 for hardware gaps) | Parity checklist (2 of 32 Pass, 25 Partial on 2026-11-08, after PR #11) | Partial |
 | 1.2 | Start, stop, pause, notes and all four shortcuts work from the window, the shortcuts and the tray menu on the current release build (A1, A4, A5, C3) | Live app and tray tests; owner's tray clicks | Partial |
-| 1.3 | Each click gives one step with the before-click picture, green outline, click mark and a name with no window title (A2, A3, A11, D6) | Self-test plus a recording in Notepad, File Explorer and Edge | Partial |
+| 1.3 | Each click gives one step with the before-click picture, green outline, click mark and a name with no window title (A2, A3, A11, D6) | Self-test plus a recording in Notepad, File Explorer and Edge. The opt-in full title (A3, PR #4) is merged; its self-test check has not run on Windows | Partial |
 | 1.4 | Passwords are never in a step, always blacked out, and the picture is withheld when the check fails, including in an elevated window (B4, B12, PSR-8) | `capture-selftest`, `browser-selftest`, one elevated-window run | Partial |
-| 1.5 | Record one window or one monitor, with redaction still aligned (A6) | New self-test | Not started |
+| 1.5 | Record one window or one monitor, with redaction still aligned (A6) | New self-test (merged, PR #5): 7 scope checks passed on one monitor on 2026-11-08, the second-monitor check was skipped; real apps untested | Partial |
 | 1.6 | Two monitors at different scaling (A7) | Self-test on a second monitor; else "not tested" under Q22 | Partial |
 | 1.7 | Sleep, lock and resolution change mid-recording recover with fresh pictures (PSR-10) | Live run | Not started |
 | 1.8 | Save to a user-picked folder; library opens, renames, deletes; retention works (C4, A8) | Live run with a non-default folder | Partial |
-| 1.9 | A real recording exports to one PDF that opens without the app (Q23), and a 30-step recording is under 10 MB (Q24, D8, PSR-1) | Real recording exported and opened on another account | Partial |
+| 1.9 | A real recording exports to one PDF that opens without the app (Q23), and a 30-step recording is under 10 MB (Q24, D8, PSR-1) | Real recording exported and opened on another account. Smaller stored images (PSR-1) are built on a branch, not merged; its pull request is being reopened in the public repository | Partial |
 | 1.10 | Owner sees the frame and tray colours; the frame never appears in a picture (C2) | Self-test plus the owner's eyes | Partial |
 | 1.11 | D1 idle under 50 MB, D2 recording under 5% CPU on the Q26 laptop, D3 start under 1 s, D7 recording memory under 250 MB | Measured on the release build, conditions written down | Partial |
 | 1.12 | No socket opens during a full record, edit and export session (C1) | Socket watch during a live session | Partial |
@@ -66,7 +66,7 @@ Done when a stranger can install BabelSteps without being scared off and the pri
 
 | # | Done when | Checked by | Status |
 | --- | --- | --- | --- |
-| 3.1 | Permissive licence chosen and the repository public (Q28) | Owner | Not started |
+| 3.1 | Permissive licence chosen and the repository public (Q28) | Owner. The repository went public on 2026-11-08 with rewritten history; the licence files are in review as PR #1 | Partial |
 | 3.2 | Installer under 20 MB installs and uninstalls cleanly on a fresh Windows 11 machine (D4) | Clean virtual machine | Not started |
 | 3.3 | Signed through SignPath, or the unsigned fallback is complete: SHA-256 hashes, winget, "why Windows warns you" page, Defender submission (Q16) | Release page | Not started |
 | 3.4 | CI runs unit tests, golden files, the no-network dependency check and a runtime socket test on every change; a failure blocks release | GitHub checks | Partial: CI runs all four (runtime test covers core only, not Windows capture); blocking merges needs the repository public (`04-privacy-and-security.md` section 8) |

@@ -89,7 +89,7 @@ Recorded on `psr.exe` 10.0.26100.8521 from its command line, limited to the test
 | Multiple monitors and mixed DPI scaling (A7) | Only one monitor, at 100% | A second display or a change to scaling |
 | Elevated windows, UAC prompts | Needs an elevated target and an admin prompt | M1 test, with the owner approving the prompt |
 | Real people using real apps | Synthetic clicks only, apart from a 2-second run that produced 2 steps from real clicks, whose output was deleted unread | `record` mode, tried by the owner |
-| Tauri and WebView2 | Not part of these spikes | Shell built and PDF printing measured (`m2-results.md`); the recorder runs inside it (`m1-results.md`). D1 (idle memory) still unmeasured |
+| Tauri and WebView2 | Not part of these spikes | Shell built and PDF printing measured (`m2-results.md`); the recorder runs inside it (`m1-results.md`). D1 (idle memory) was met in tray mode on 2026-11-08, at 6 MB (`m1-results.md`) |
 | D3, D4 (startup, installer size) | Nothing to measure yet | M1 to M3. D5 was met on one fast PC on 2026-11-06: see `m2-results.md` |
 | Lower-end hardware | One fast desktop only | A laptop test before M3 |
 | Long sessions, screen resolution changes, sleep and lock | Out of scope for spikes | M1 |
