@@ -28,7 +28,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B3 | Name keyboard shortcuts as actions (Ctrl+S → "Save"; Enter → "Press Enter"). | P1 |
 | B4 | Password fields are never recorded as text (see Privacy doc). | P0 |
 | B5 | Auto-generated document after stop: numbered steps, a screenshot per step, and caption text. | P1 |
-| B6 | WYSIWYG editable document: edit titles and descriptions, reorder, delete, merge, and insert text, headings, lists, and images. Basic formatting (bold, italic, underline, lists, headings, code). Content round-trips with Markdown (import and export) without losing structure. | P1 |
+| B6 | WYSIWYG editable document: edit titles and descriptions, reorder, delete, merge, and insert text, headings, lists, and images. Basic formatting (bold, italic, underline, lists, headings, code). Content round-trips with Markdown (import and export) without losing structure. Editor gaps built 2026-11-08 (PR #29): Add list, Bold, Italic, Underline and Code buttons, and Merge with next step; 17 new Node tests, not clicked in the real app. | P1 |
 | B7 | Blur or black-out regions on any screenshot before export. | P1 |
 | B8 | Export to **PDF** on US Letter pages. A header and footer (title and page number) are an export option, off by default (Q7). | P0 |
 | B9 | Export to **Markdown** (text file plus an `images/` folder). | P0 |
@@ -36,7 +36,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |
 | B12 | Automatic redaction of passwords: every password field in any visible window on the captured screen is blacked out at capture on every step, and the original pixels are never stored. If the check fails or times out, the screenshot is withheld. | P0 |
 | B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). Screenshot detection by local text recognition comes after the first release; M2 covers typed text plus manual review (Q27). | P1 |
-| B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. | P1 |
+| B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. The custom words and patterns are built 2026-11-08 (PR #33; in Settings, applied to typed text, included in settings export; recording refuses to start if the saved rules cannot be built); a live recording that actually hides a custom word has not been run. The pre-export review itself is still being built. | P1 |
 
 ## C. Cross-cutting
 
