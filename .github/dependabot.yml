@@ -23,6 +23,11 @@ updates:
       # workflows) don't all start CI at the same moment.
       day: tuesday
     open-pull-requests-limit: 3
+    ignore:
+      # svelte-check only accepts TypeScript 5 or 6, so `npm ci` fails on 7.
+      # Remove this when svelte-check supports TypeScript 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]

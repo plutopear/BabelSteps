@@ -16,7 +16,7 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Dev-only PDF checks. Never part of a release build.
-lopdf = { version = "0.38", optional = true }
+lopdf = { version = "0.47", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 
 # Windows printing. Versions must match the ones wry/tauri already use
@@ -25,7 +25,7 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 babelsteps-windows = { path = "../../platform/windows" }
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation"] }
-windows-core = "0.62"
+windows-core = "0.100"
 
 [features]
 # Embed the built frontend. Without it a release build points at the dev server
