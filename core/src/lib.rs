@@ -14,6 +14,7 @@ pub mod password;
 pub mod pii;
 pub mod screenshot;
 pub mod settings;
+pub mod settings_transfer;
 pub mod storage;
 pub mod templates;
 #[cfg(any(test, feature = "test-support"))]
