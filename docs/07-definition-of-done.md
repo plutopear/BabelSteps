@@ -20,7 +20,7 @@ Status values: Met, Partial, Not started, Needs decision, Not checked.
 | 0.2 | Steps Recorder baseline recorded from a real machine | `research/baseline-and-competitors.md` | Met |
 | 0.3 | Each D-target is met or revised with a reason | D6 measured at about 11 ms p95; D7 set from the measured peak | Met |
 | 0.4 | Stack confirmed | Q1; the Tauri shell loads its window | Met |
-| 0.5 | Blocking questions answered | Q1 to Q16, Q18 onward; Q17 left for the M1 admin-window test | Met |
+| 0.5 | Blocking questions answered | Q1 to Q16, Q18 onward; Q17 left for the M1 admin-window test (decided later as Q31) | Met |
 | 0.6 | Roadmap marks M0 closed | `05-roadmap.md` | Met |
 
 ## M1: Windows capture parity
@@ -29,7 +29,7 @@ Done when a Steps Recorder user can switch and lose nothing they rely on, and Ba
 
 | # | Done when | Checked by | Status |
 | --- | --- | --- | --- |
-| 1.1 | Every parity checklist item is Pass, or moved out of M1 with a written reason (Q22 for hardware gaps) | Parity checklist (2 of 32 Pass, 27 Partial, 1 Not tested, 2 Out of scope on 2026-11-08, after PR #22) | Partial |
+| 1.1 | Every parity checklist item is Pass, or moved out of M1 with a written reason (Q22 for hardware gaps) | Parity checklist (2 of 32 Pass, 28 Partial, 0 Not tested, 2 Out of scope on 2026-11-08, after PR #26) | Partial |
 | 1.2 | Start, stop, pause, notes and all four shortcuts work from the window, the shortcuts and the tray menu on the current release build (A1, A4, A5, C3) | Live app and tray tests; owner's tray clicks (hand test 2026-11-08: Show, Quit and double-click pass; Stop and Pause from the tray menu not confirmed) | Partial |
 | 1.3 | Each click gives one step with the before-click picture, green outline, click mark and a name with no window title (A2, A3, A11, D6) | Self-test plus a recording in Notepad, File Explorer and Edge. The opt-in full title (A3, PR #4) is merged; its self-test check has not run on Windows | Partial |
 | 1.4 | Passwords are never in a step, always blacked out, and the picture is withheld when the check fails, including in an elevated window (B4, B12, PSR-8) | `capture-selftest`, `browser-selftest`, one elevated-window run. A self-test check failed on `main` on 2026-11-08 for the minimized-window case; it was a false alarm (the recorder's own green outline, not a password; test fixed and merged in PR #17, 84 of 84 pass) | Partial |
