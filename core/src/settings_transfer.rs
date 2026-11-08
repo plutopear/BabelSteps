@@ -210,6 +210,31 @@ impl Settings {
         out
     }
 
+    /// Plain-language notes for each change from `self` to `after` that
+    /// weakens a privacy default, so an import can say so. A settings file
+    /// from someone else can switch these, so the user is told, not asked.
+    pub fn privacy_notes(&self, after: &Settings) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if !self.show_window_titles && after.show_window_titles {
+            out.push("Full window titles are now saved in steps (they can hold file names and customer names).");
+        }
+        if self.show_capture_border && !after.show_capture_border {
+            out.push("The coloured frame around the screen while recording is now off.");
+        }
+        if !self.close_to_tray && after.close_to_tray {
+            out.push("Closing the window now keeps BabelSteps running in the tray.");
+        }
+        let keeps_more = match (self.keep_screenshots, after.keep_screenshots) {
+            (Some(_), None) => true,
+            (Some(a), Some(b)) => b > a,
+            _ => false,
+        };
+        if keeps_more {
+            out.push("More screenshots are now kept on disk after a recording.");
+        }
+        out
+    }
+
     /// Parse an export file and merge it onto these settings. Returns the new
     /// settings without changing `self`; the caller saves them through the
     /// normal save path.
@@ -544,5 +569,21 @@ mod tests {
             Settings::from_json_strict(&text).unwrap().hotkeys.note,
             "Ctrl+Alt+Shift+N"
         );
+    }
+    #[test]
+    fn privacy_notes_name_only_weakened_defaults() {
+        let base = Settings::default();
+        assert!(base.privacy_notes(&base).is_empty());
+        let mut weaker = base.clone();
+        weaker.show_window_titles = true;
+        weaker.show_capture_border = false;
+        weaker.close_to_tray = true;
+        weaker.keep_screenshots = None;
+        let mut had_limit = base.clone();
+        had_limit.keep_screenshots = Some(10);
+        assert_eq!(base.privacy_notes(&weaker).len(), 3);
+        assert_eq!(had_limit.privacy_notes(&weaker).len(), 4);
+        // Tightening is not reported.
+        assert!(weaker.privacy_notes(&base).is_empty());
     }
 }

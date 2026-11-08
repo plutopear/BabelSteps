@@ -855,7 +855,7 @@ const MAX_SETTINGS_FILE_BYTES: u64 = 64 * 1024;
 /// Machine-specific settings stay out; see `Settings::to_export_json`.
 #[tauri::command]
 pub fn export_settings(app: AppHandle, path: String) -> AppResult<()> {
-    let path = crate::commands::require_absolute(&path, "the settings file")?;
+    let path = settings_file_path(&path)?;
     let text = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).to_export_json();
     std::fs::write(&path, text).map_err(|e| AppError::new(ErrorKind::Storage, format!("the settings file was not written: {e}")))
 }
@@ -866,7 +866,7 @@ pub fn export_settings(app: AppHandle, path: String) -> AppResult<()> {
 #[tauri::command]
 pub fn import_settings(app: AppHandle, path: String) -> AppResult<Vec<String>> {
     use std::io::Read;
-    let path = crate::commands::require_absolute(&path, "the settings file")?;
+    let path = settings_file_path(&path)?;
     let file = std::fs::File::open(&path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             AppError::new(ErrorKind::NotFound, "the settings file was not found")
@@ -885,7 +885,24 @@ pub fn import_settings(app: AppHandle, path: String) -> AppResult<Vec<String>> {
         .map_err(|_| AppError::new(ErrorKind::InvalidArgument, "This file is not a BabelSteps settings export."))?;
     let current = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let merged = current.import_json(&text).map_err(|e| AppError::new(ErrorKind::InvalidArgument, e.to_string()))?;
-    apply_settings(&app, merged)
+    let notes = current.privacy_notes(&merged);
+    let mut out: Vec<String> = notes.into_iter().map(String::from).collect();
+    out.extend(apply_settings(&app, merged)?);
+    Ok(out)
+}
+
+/// A settings file must be a full local `.json` path. Network paths are
+/// refused, so a chosen path cannot open a connection to another machine.
+fn settings_file_path(p: &str) -> AppResult<std::path::PathBuf> {
+    let path = crate::commands::require_absolute(p, "the settings file")?;
+    if p.starts_with("\\\\") || p.starts_with("//") {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the settings file must be on this computer"));
+    }
+    let is_json = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if !is_json {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the settings file must end in .json"));
+    }
+    Ok(path)
 }
 
 fn hotkey_warnings(app: &AppHandle) -> Vec<String> {
