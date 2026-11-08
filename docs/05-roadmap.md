@@ -85,7 +85,7 @@ Live tests:
 - Document generation after stop (B5).
 - Block editor with formatting (B6).
 - Manual redaction (B7), automatic redaction of passwords and PII (B12–B14), and manual steps (B11).
-- Markdown export (B9) and PDF export (B8).
+- Markdown export (B9) and PDF export (B8). Also built 2026-11-08: single-file HTML export (B10, PR #30), document templates (E3, PR #25), settings export and import (C7, PR #27), and exports that write one title heading when the first block repeats the title (PR #28).
 
 **Exit:** golden-file export tests pass. A 100-step recording exports to PDF within D5.
 
@@ -115,7 +115,7 @@ Kept in the backlog. Until it is scheduled, we only keep the platform interfaces
 
 ## Later (not scheduled)
 
-- Single-file HTML export (B10) and bundle export.
+- Bundle export. (Single-file HTML export, B10, was pulled forward by the owner and built on 2026-11-08, PR #30.)
 - Opening Steps Recorder output (A10).
 - Local-only AI assistance for step descriptions.
 - Browser extension that stays local.
