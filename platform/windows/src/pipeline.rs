@@ -78,6 +78,13 @@ pub struct RecorderConfig {
     pub ignore_own_windows: bool,
     /// Key combinations never recorded: the app's own hotkeys.
     pub ignore_keys: Vec<Hotkey>,
+    /// Screen areas whose clicks are never recorded: the app's own tray icon,
+    /// which belongs to the taskbar rather than to this process. The app keeps
+    /// it up to date while recording.
+    pub ignore_areas: Option<Arc<Mutex<Vec<Rect>>>>,
+    /// Clicks on taskbar elements whose name starts with this are never
+    /// recorded (the tray icon in the hidden-icons flyout, named after its tooltip).
+    pub ignore_shell_elements_named: Option<String>,
 }
 
 impl Default for RecorderConfig {
@@ -88,6 +95,8 @@ impl Default for RecorderConfig {
             only_injected: false,
             ignore_own_windows: true,
             ignore_keys: Vec::new(),
+            ignore_areas: None,
+            ignore_shell_elements_named: None,
         }
     }
 }
@@ -99,6 +108,7 @@ struct CaptureOpts {
     keystrokes_enabled: bool,
     ignore_own_windows: bool,
     ignore_keys: Vec<Hotkey>,
+    ignore_areas: Option<Arc<Mutex<Vec<Rect>>>>,
 }
 
 /// Fault injection for the self-test. Inert unless something sets it.
@@ -225,6 +235,7 @@ impl Recorder {
             keystrokes_enabled: config.keystrokes_enabled,
             ignore_own_windows: config.ignore_own_windows,
             ignore_keys: config.ignore_keys.clone(),
+            ignore_areas: config.ignore_areas.clone(),
         };
         let (cap_tx, cap_rx) = unbounded::<Captured>();
         let analysis = {
@@ -475,7 +486,11 @@ fn handle_raw(
 ) {
     match ev {
         RawEvent::MouseDown { button, x, y, t, injected } => {
-            if (opts.only_injected && !injected) || paused || (opts.ignore_own_windows && is_own_window_at(x, y)) {
+            let in_ignored_area = opts
+                .ignore_areas
+                .as_ref()
+                .is_some_and(|a| scan::point_in(x, y, &a.lock().unwrap_or_else(|e| e.into_inner())));
+            if (opts.only_injected && !injected) || paused || in_ignored_area || (opts.ignore_own_windows && is_own_window_at(x, y)) {
                 return;
             }
             *last_was_text = false;
@@ -556,7 +571,11 @@ struct KeyScan {
     rects: Vec<Rect>,
 }
 
+/// Processes that draw the taskbar and its tray flyouts.
+const SHELL_PROCESSES: [&str; 3] = ["explorer", "ShellExperienceHost", "ShellHost"];
+
 struct Analysis {
+    ignore_shell_named: Option<String>,
     norm: Normalizer,
     recording: Recording,
     uia: UiaPool,
@@ -603,6 +622,7 @@ impl Analysis {
     ) -> Self {
         let start_unix_ms = clock::unix_ms();
         Analysis {
+            ignore_shell_named: config.ignore_shell_elements_named.clone(),
             norm: Normalizer::new(NormalizerConfig { keystrokes_enabled: config.keystrokes_enabled, custom: config.custom }),
             recording,
             uia: UiaPool::new(faults.uia.clone()),
@@ -812,6 +832,12 @@ impl Analysis {
     fn on_click(&mut self, button: MouseButton, x: i32, y: i32, t: i64, shot: Option<Shot>) {
         let lookups = self.uia.call(LOOKUP_TIMEOUT, move |u| Ok((u.element_at(x, y).ok(), u.focused().ok())));
         let (element, focused) = lookups.unwrap_or((None, None));
+        if let (Some(prefix), Some(e)) = (&self.ignore_shell_named, &element) {
+            let shell = SHELL_PROCESSES.iter().any(|p| e.process_name.eq_ignore_ascii_case(p));
+            if shell && e.name.starts_with(prefix.as_str()) {
+                return; // A click on our own tray icon; its frame is dropped unwritten.
+            }
+        }
         let scanned = match (&shot, monitor_area_at(x, y)) {
             (Some(s), _) => self.scan_frame(&s.windows.clone(), s.hidden, frame_area(&s.frame), Some((x, y)), t),
             (None, Some(a)) => self.scan_now(a, t, Some((x, y))),

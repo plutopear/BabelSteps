@@ -13,7 +13,7 @@ use babelsteps_windows::{Recorder, RecorderConfig};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -40,6 +40,8 @@ pub struct RecState {
     start_requests: AtomicU64,
     hotkeys_ok: Mutex<Vec<bool>>,
     tray: Mutex<Option<TrayIcon>>,
+    /// Where the tray icon is, so the recorder ignores clicks on it.
+    tray_area: Arc<Mutex<Vec<babelsteps_core::Rect>>>,
 }
 
 fn lock_active(state: &RecState) -> std::sync::MutexGuard<'_, Option<Active>> {
@@ -139,7 +141,13 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
         }
     };
     let ignore_keys = HOTKEYS.iter().map(|(_, k)| Hotkey::ctrl_alt_shift(*k)).collect();
-    let config = RecorderConfig { keystrokes_enabled: keystrokes, ignore_keys, ..RecorderConfig::default() };
+    let config = RecorderConfig {
+        keystrokes_enabled: keystrokes,
+        ignore_keys,
+        ignore_areas: Some(rs.tray_area.clone()),
+        ignore_shell_elements_named: Some("BabelSteps".to_string()),
+        ..RecorderConfig::default()
+    };
     match Recorder::start(bundle, recording, config) {
         Ok(recorder) => {
             *active = Some(Active { recorder, path, keystrokes });
@@ -291,6 +299,19 @@ pub fn setup_hotkeys(app: &AppHandle) {
         .ok();
 }
 
+/// Record where the tray icon is, in physical pixels, with a little margin.
+fn update_tray_area(app: &AppHandle) {
+    let rs = app.state::<RecState>();
+    let rect = rs.tray.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|t| t.rect().ok().flatten());
+    let area = match rect {
+        Some(tauri::Rect { position: tauri::Position::Physical(p), size: tauri::Size::Physical(s) }) => {
+            vec![babelsteps_core::Rect { x: p.x - 2, y: p.y - 2, w: s.width as i32 + 4, h: s.height as i32 + 4 }]
+        }
+        _ => Vec::new(),
+    };
+    *rs.tray_area.lock().unwrap_or_else(|e| e.into_inner()) = area;
+}
+
 /// A filled circle, for the tray: grey idle, red recording, amber paused.
 fn dot(rgb: [u8; 3]) -> Image<'static> {
     const N: u32 = 32;
@@ -348,6 +369,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             let mut last: Option<TrayLook> = None;
             loop {
                 std::thread::sleep(Duration::from_millis(300));
+                update_tray_area(&app);
                 let st = status_of(&app);
                 let look = match (st.active, st.paused) {
                     (false, _) => TrayLook::Idle,
