@@ -503,6 +503,51 @@ fn hook_speed(c: &mut Checks, dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// C2: the recording frame must never appear in a screenshot. The control runs
+/// the same frame without the capture exclusion and must show red at the screen
+/// edge, otherwise this check could not fail.
+fn frame_cue(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    use babelsteps_windows::indicator::Indicator;
+    const FRAME: [u8; 3] = [220, 30, 30];
+    let (bx, by) = win.background_point()?;
+    let mut measure = |excluded: bool, name: &str| -> Result<usize> {
+        let cue = if excluded { Indicator::start()? } else { Indicator::start_unexcluded()? };
+        ms(600);
+        let r = start(dir, name, false)?;
+        ms(300);
+        for _ in 0..3 {
+            win.safe_click(bx, by)?;
+            ms(250);
+        }
+        let (bundle, report) = stop(r)?;
+        drop(cue);
+        let m = monitor_of(bx, by)?;
+        let mut hits = 0;
+        for s in clicks(&report.recording) {
+            let Some(rel) = s.screenshot.as_deref() else { continue };
+            let f = load(&bundle, rel, &m)?;
+            for i in 0..3 {
+                for x in m.x..m.x + m.w {
+                    for y in [m.y + i, m.y + m.h - 1 - i] {
+                        hits += usize::from(f.sample(x, y).is_some_and(|p| near(p, FRAME, 12)));
+                    }
+                }
+                for y in m.y..m.y + m.h {
+                    for x in [m.x + i, m.x + m.w - 1 - i] {
+                        hits += usize::from(f.sample(x, y).is_some_and(|p| near(p, FRAME, 12)));
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    };
+    let control = measure(false, "cue-control")?;
+    let real = measure(true, "cue-excluded")?;
+    c.check("frame cue control: the frame without the exclusion IS visible in screenshots", control > 100, format!("{control} frame-coloured edge pixels"));
+    c.check("frame cue: with the exclusion, no frame pixels in any screenshot", real == 0, format!("{real} frame-coloured edge pixels"));
+    Ok(())
+}
+
 fn run(out: &Path) -> Result<Checks> {
     let mut c = Checks { lines: Vec::new(), passed: 0, failed: 0 };
     std::fs::create_dir_all(out)?;
@@ -524,6 +569,7 @@ fn run(out: &Path) -> Result<Checks> {
         scan_failure(&mut c, &win, &work)?;
         gdi_marked(&mut c, &win, &work)?;
         pause_and_comment(&mut c, &win, &work)?;
+        frame_cue(&mut c, &win, &work)?;
         hook_speed(&mut c, &work)?;
         Ok(())
     })();

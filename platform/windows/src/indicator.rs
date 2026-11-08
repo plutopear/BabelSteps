@@ -51,9 +51,20 @@ pub struct Indicator {
 impl Indicator {
     /// Show the frame on every monitor. Errors if it cannot be kept out of screenshots.
     pub fn start() -> Result<Indicator> {
+        Self::start_with(true)
+    }
+
+    /// Self-test control only: the frame WITHOUT the capture exclusion, to prove
+    /// the test can see a frame that is not excluded.
+    #[cfg(feature = "selftest")]
+    pub fn start_unexcluded() -> Result<Indicator> {
+        Self::start_with(false)
+    }
+
+    fn start_with(exclude: bool) -> Result<Indicator> {
         COLOR.store(RED, Ordering::Relaxed);
         let (tx, rx) = bounded::<Result<u32, String>>(1);
-        let join = thread::Builder::new().name("capture-cue".into()).spawn(move || unsafe { run(tx) })?;
+        let join = thread::Builder::new().name("capture-cue".into()).spawn(move || unsafe { run(tx, exclude) })?;
         match rx.recv() {
             Ok(Ok(thread_id)) => Ok(Indicator { thread_id, join: Some(join) }),
             Ok(Err(e)) => {
@@ -100,7 +111,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     }
 }
 
-unsafe fn run(ready: crossbeam_channel::Sender<Result<u32, String>>) {
+unsafe fn run(ready: crossbeam_channel::Sender<Result<u32, String>>, exclude: bool) {
     monitors::make_thread_dpi_aware();
     let fail = |m: &str| {
         let _ = ready.send(Err(m.to_string()));
@@ -140,7 +151,7 @@ unsafe fn run(ready: crossbeam_channel::Sender<Result<u32, String>>) {
             Err(_) => continue,
         };
         // Out of screenshots first; only then can it be shown.
-        if SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE).is_err() {
+        if exclude && SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE).is_err() {
             let _ = DestroyWindow(hwnd);
             for h in windows.drain(..) {
                 let _ = DestroyWindow(h);

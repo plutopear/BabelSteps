@@ -96,3 +96,7 @@ Second run: 27 of 27 checks. Both typed passwords are in no step and no file (se
 - Whether the eye button actually showed the password. The field is black in every image, and the page cannot report the state.
 - Whether Edge offered to save the password after Sign in, and what that prompt showed in the last image. Edge draws it outside the field, so redaction does not cover it. The prompt hides the password by default.
 - Password fields inside frames, fields that only look like password fields (ordinary text boxes masked by the site's own code: detection cannot see these), display scaling other than 100%, a normal browser window with tabs, Chrome, Firefox.
+
+## 2026-11-08: screen frame (C2) kept out of screenshots
+
+Self-test (release build, one monitor, Windows 11, Windows Graphics Capture, 0 GDI fallbacks): 38 of 38 pass. New check: the same frame without the capture exclusion shows 118,080 frame-coloured pixels at the screen edge in saved screenshots (the control, so the check can fail); with the exclusion there are 0. Not covered: the GDI fallback capture path, Windows 10 before 2004, multiple monitors, and whether clicks on the outer 4 pixels of the screen still record correctly (no safe way to inject those clicks). Retention and remapped hotkeys have unit tests only; neither has run in the real app.
