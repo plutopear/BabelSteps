@@ -4,6 +4,11 @@ name: CodeQL
 
 on:
   pull_request:
+    # Notes and research files contain no code to scan.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "research/**"
   push:
     branches: [main]
   schedule:
@@ -15,12 +20,17 @@ permissions:
 
 concurrency:
   group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on main: a quick second merge used to cancel the
+  # first merge's checks, so that commit was never fully tested.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
-    if: ${{ !github.event.repository.private }}
+    # Dependabot pull requests only change lock files, which cargo-deny and
+    # npm audit already check; the push to main after the merge is scanned.
+    # Skipping them keeps the free Linux runners from queueing.
+    if: ${{ !github.event.repository.private && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
