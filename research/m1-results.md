@@ -165,3 +165,24 @@ Release exe built with `--features custom-protocol`, including the window-title 
 - Sockets while recording: none, except the test's own debugging listener.
 
 **Not tested:** stop from the tray menu (needs a real click on the taskbar), the size-warning notice, keystroke capture on, long sessions.
+
+## 2026-11-08: close to the tray (Q21), live test, 24 of 24 pass
+
+Run with the owner's OK on the release build, using `live-tray-test.ps1` in the capture-selftest skill. One monitor, Windows 11. Each timing is a single measurement.
+
+- With the window open and idle: 147 MB private memory across 6 processes (6 MB of that is the app process).
+- After closing to the tray and waiting 15 s: 6 MB private memory in 1 process, and 0.3% of one core. The WebView2 processes ended. **D1 is met in tray mode** (target: under 50 MB). The process held no network sockets.
+- Passed:
+  - The start shortcut began a new recording with the window closed.
+  - The note shortcut does nothing when no recording is running. During a recording it rebuilt the window with the cursor in the note box.
+  - Closing during a recording stopped and saved it. The clicks, the note and the images were on disk, with nothing orphaned and nothing missing.
+  - Stopping and starting again with the window closed made a new recording. This bug was found in review and fixed before this run.
+  - The stop-now shortcut worked in a rebuilt window.
+  - Choosing "Quit" again made closing end the app.
+- Hardening: right-clicking the start-up window and a rebuilt window opened no browser menu. As a control, the same check found the menu on our own test window. The window now reads its WebView2 settings back and closes itself if they did not apply.
+- The first run (22 of 23) saw one new window after right-clicking the rebuilt window. Its cause is unknown, because that run did not record window classes. The second run, after the fail-closed change, saw none.
+- Not tested:
+  - The tray menu's Show item and double-clicking the tray icon, because both need real taskbar clicks. The menu now opens on right-click only.
+  - Windows sign-out or shutdown during a recording with the window closed.
+  - The fail-closed path itself (it never triggered).
+- After this run, the privacy audit found that the refused window could be shown again while its error message was open, and that the window appeared before its hardening was confirmed. Both are fixed: the window is now built hidden and shown only once the hardening is confirmed, and a timeout reports a hardening step that never runs. The audit passed after the fix. **The window-showing change has not been live-tested.** The 24 of 24 run used the build before it. A later finding is noted but not fixed: a late "window destroyed" event can stop Show from bringing an already-open window to the front. It cannot show an unhardened window.

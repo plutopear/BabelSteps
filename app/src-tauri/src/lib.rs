@@ -116,15 +116,63 @@ pub fn run() {
 /// `for_note` opens it on the note box (the "Add a note" shortcut).
 pub(crate) fn build_main_window(app: &tauri::AppHandle, for_note: bool) -> tauri::Result<tauri::WebviewWindow> {
     let page = if for_note { "index.html#note" } else { "index.html" };
+    recording::set_main_window_state(app, recording::MainWindow::Pending);
+    // Built hidden: it is shown only once the hardening is confirmed.
     let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(page.into()))
         .title("BabelSteps")
         .inner_size(1100.0, 760.0)
+        .visible(cfg!(not(windows)))
         .build()?;
+    // Fail closed: a window whose hardening (SmartScreen lookup off, no browser
+    // menus or devtools) cannot be confirmed is never shown, and the user is told.
     #[cfg(windows)]
-    let _ = main.with_webview(|pv| unsafe {
-        if let Ok(core) = pv.controller().CoreWebView2() {
-            pdf::windows::harden(&core);
+    {
+        let w = main.clone();
+        let queued = main.with_webview(move |pv| {
+            let ok = unsafe { pv.controller().CoreWebView2() }.map(|core| pdf::windows::harden(&core)).unwrap_or(false);
+            if ok {
+                recording::set_main_window_state(w.app_handle(), recording::MainWindow::Ready);
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            } else {
+                refuse_unhardened(&w);
+            }
+        });
+        if queued.is_err() {
+            refuse_unhardened(&main);
+        } else {
+            // If the hardening step never runs, say so instead of staying hidden silently.
+            let w = main.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                if recording::main_window_pending(w.app_handle()) && w.app_handle().get_webview_window("main").is_some() {
+                    refuse_unhardened(&w);
+                }
+            });
         }
-    });
+    }
+    #[cfg(not(windows))]
+    recording::set_main_window_state(app, recording::MainWindow::Ready);
     Ok(main)
+}
+
+#[cfg(windows)]
+fn refuse_unhardened(w: &tauri::WebviewWindow) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    // Marked refused first, so Show, double-click and the note shortcut leave
+    // it hidden. It is destroyed only after the message is read, so that with
+    // "Quit" chosen the app does not exit before the user sees why.
+    recording::set_main_window_state(w.app_handle(), recording::MainWindow::Refused);
+    let _ = w.hide();
+    let w2 = w.clone();
+    w.app_handle()
+        .dialog()
+        .message("BabelSteps closed its window because it could not apply its privacy settings to the built-in browser. Quit BabelSteps and start it again.")
+        .title("Window closed")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| {
+            recording::note_window_refused(w2.app_handle());
+            let _ = w2.destroy();
+        });
 }

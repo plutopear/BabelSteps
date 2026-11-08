@@ -24,16 +24,23 @@ pub struct WebView2Printer {
 /// reputation lookup (`IsReputationCheckingRequired`). This is a setting we
 /// apply, not a proven guarantee about all WebView2 traffic; that is measured
 /// separately.
-pub fn harden(core: &ICoreWebView2) {
+/// Returns true only when the settings read back as applied, so callers can
+/// fail closed.
+pub fn harden(core: &ICoreWebView2) -> bool {
     unsafe {
-        if let Ok(s) = core.Settings() {
-            if let Ok(s8) = s.cast::<ICoreWebView2Settings8>() {
-                let _ = s8.SetIsReputationCheckingRequired(false);
-            }
-            let _ = s.SetAreDevToolsEnabled(false);
-            let _ = s.SetAreDefaultContextMenusEnabled(false);
-            let _ = s.SetIsStatusBarEnabled(false);
-        }
+        let Ok(s) = core.Settings() else { return false };
+        let Ok(s8) = s.cast::<ICoreWebView2Settings8>() else { return false };
+        let _ = s8.SetIsReputationCheckingRequired(false);
+        let _ = s.SetAreDevToolsEnabled(false);
+        let _ = s.SetAreDefaultContextMenusEnabled(false);
+        let _ = s.SetIsStatusBarEnabled(false);
+        let (mut rep, mut dev, mut menus) = (BOOL(1), BOOL(1), BOOL(1));
+        s8.IsReputationCheckingRequired(&mut rep).is_ok()
+            && s.AreDevToolsEnabled(&mut dev).is_ok()
+            && s.AreDefaultContextMenusEnabled(&mut menus).is_ok()
+            && !rep.as_bool()
+            && !dev.as_bool()
+            && !menus.as_bool()
     }
 }
 
@@ -111,7 +118,10 @@ impl PdfPrinter for WebView2Printer {
         win.with_webview(move |pv| unsafe {
             let result = (|| -> windows::core::Result<()> {
                 let core = pv.controller().CoreWebView2()?;
-                harden(&core);
+                // Fail closed: no print without the hardening (SmartScreen off).
+                if !harden(&core) {
+                    return Err(windows::Win32::Foundation::E_FAIL.into());
+                }
                 let tx = nav_tx.clone();
                 let mut token = 0i64;
                 core.add_NavigationCompleted(

@@ -17,6 +17,12 @@ export const rs = $state({
   knownIds: [] as string[],
 });
 
+/** The window was rebuilt by the "Add a note" shortcut (page opened as #note).
+ *  Read once here and cleared at the first status poll, so it can only apply
+ *  to the recording that was running when the window opened. */
+export const openedForNote = { pending: location.hash === "#note" };
+if (openedForNote.pending) history.replaceState(null, "", location.pathname + location.search);
+
 export function statusLabel(s: RecordingStatus): string {
   if (!s.active) return "Not recording";
   if (s.paused) return `Paused · Keystrokes ${s.keystrokes ? "on" : "off"}`;
@@ -28,6 +34,7 @@ export async function refreshStatus(): Promise<RecordingStatus> {
     const s = await api.recordingStatus();
     const before = statusLabel(rs.status);
     rs.status = s;
+    if (!s.active) openedForNote.pending = false;
     const after = statusLabel(s);
     if (before !== after) say(after + ".");
   } catch {

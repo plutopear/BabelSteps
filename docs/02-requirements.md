@@ -54,7 +54,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 
 | ID | Target |
 | --- | --- |
-| D1 | Idle in tray: under 50 MB RAM, near-zero CPU. Measured with "Keep running in the tray" on and the window closed (Q21). With the window open, the app measured 147 MB on 2026-11-08, almost all of it the WebView2 engine; there is no target for that state. |
+| D1 | Idle in tray: under 50 MB RAM, near-zero CPU. Measured with "Keep running in the tray" on and the window closed (Q21). Met 2026-11-08: 6 MB, 0.3% of one core. With the window open, the app measured 147 MB on 2026-11-08, almost all of it the WebView2 engine; there is no target for that state. |
 | D2 | While recording: under 5% CPU sustained on a typical laptop, no dropped clicks. |
 | D3 | Cold start to tray: under 1 second. |
 | D4 | Installer: under 20 MB. |

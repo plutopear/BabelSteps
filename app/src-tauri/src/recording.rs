@@ -59,6 +59,37 @@ pub struct RecState {
     tray_area: Arc<Mutex<Vec<babelsteps_core::Rect>>>,
     /// Held while the window is rebuilt from the tray.
     window_build: Mutex<()>,
+    /// Set just before we destroy a window whose hardening failed.
+    window_refused: AtomicBool,
+    /// `MainWindow` as a number: whether the main window may be shown.
+    main_state: std::sync::atomic::AtomicU8,
+}
+
+/// Whether the main window's WebView2 hardening is confirmed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MainWindow {
+    /// Being built (or none): not shown yet.
+    Pending = 0,
+    /// Hardening confirmed: may be shown.
+    Ready = 1,
+    /// Hardening failed: stays hidden until destroyed.
+    Refused = 2,
+}
+
+pub fn set_main_window_state(app: &AppHandle, s: MainWindow) {
+    app.state::<RecState>().main_state.store(s as u8, Ordering::Relaxed);
+}
+
+pub fn main_window_pending(app: &AppHandle) -> bool {
+    main_window_state(app) == MainWindow::Pending
+}
+
+fn main_window_state(app: &AppHandle) -> MainWindow {
+    match app.state::<RecState>().main_state.load(Ordering::Relaxed) {
+        1 => MainWindow::Ready,
+        2 => MainWindow::Refused,
+        _ => MainWindow::Pending,
+    }
 }
 
 fn lock_active(state: &RecState) -> std::sync::MutexGuard<'_, Option<Active>> {
@@ -197,7 +228,7 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     let taken = lock_active(&app.state::<RecState>()).take();
     let Some(a) = taken else { return Err(AppError::new(ErrorKind::InvalidArgument, "no recording is running")) };
     let path = a.path.clone();
-    let reopen = |app: &AppHandle| *lock_current(&app.state::<AppState>()) = Bundle::open(&path).ok();
+    let reopen = |app: &AppHandle| keep_current(app, Bundle::open(&path).ok());
     let bundle = match a.recorder.stop() {
         Ok((bundle, _report)) => bundle,
         Err(e) => {
@@ -209,7 +240,7 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     let mut recording = match bundle.load() {
         Ok(r) => r,
         Err(e) => {
-            *lock_current(&app.state::<AppState>()) = Some(bundle);
+            keep_current(app, Some(bundle));
             return Err(e.into());
         }
     };
@@ -217,8 +248,17 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     let notice = apply_retention(&bundle, &mut recording, &settings);
     *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = notice;
     let path = bundle.path().to_string_lossy().into_owned();
-    *lock_current(&app.state::<AppState>()) = Some(bundle);
+    keep_current(app, Some(bundle));
     Ok(OpenedRecording { path, recording })
+}
+
+/// After a stop, the stopped recording stays open for the editor. With no
+/// window (closed to the tray) there is no editor to show it, so it is closed:
+/// the next start shortcut then makes a new recording instead of adding steps
+/// to one the user cannot see.
+fn keep_current(app: &AppHandle, bundle: Option<Bundle>) {
+    let window = app.get_webview_window("main").is_some() && main_window_state(app) != MainWindow::Refused;
+    *lock_current(&app.state::<AppState>()) = if window { bundle } else { None };
 }
 
 /// A8: keep screenshots for the newest N steps only. The document is saved
@@ -280,9 +320,13 @@ fn show_main(app: &AppHandle) {
 /// idle memory), so build a new one. `for_note` opens it with the note box focused.
 fn show_main_for(app: &AppHandle, for_note: bool) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        // Only a window whose hardening is confirmed may be shown. A pending
+        // one shows itself when ready; a refused one stays hidden until destroyed.
+        if main_window_state(app) == MainWindow::Ready {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
         return;
     }
     // Build off the calling thread: this runs from tray-menu handlers on the
@@ -295,10 +339,9 @@ fn show_main_for(app: &AppHandle, for_note: bool) {
         if app.get_webview_window("main").is_some() {
             return;
         }
+        // On success the window shows and focuses itself once hardened.
         match crate::build_main_window(&app, for_note) {
-            Ok(w) => {
-                let _ = w.set_focus();
-            }
+            Ok(_) => {}
             Err(e) => {
                 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
                 app.dialog()
@@ -311,9 +354,18 @@ fn show_main_for(app: &AppHandle, for_note: bool) {
     });
 }
 
-/// Called when the main window is gone. Its editor can no longer save first.
+/// Called when the main window is gone. Its editor can no longer save first,
+/// and the recording it had open is closed, so a start shortcut pressed later
+/// (window closed to the tray) makes a new recording instead of adding steps
+/// to a document the user can no longer see. A rebuilt window opens on the library.
 pub fn main_window_destroyed(app: &AppHandle) {
-    app.state::<RecState>().editor_unsaved.store(false, Ordering::Relaxed);
+    set_main_window_state(app, MainWindow::Pending);
+    let rs = app.state::<RecState>();
+    rs.editor_unsaved.store(false, Ordering::Relaxed);
+    let active = lock_active(&rs);
+    if active.is_none() {
+        *crate::commands::lock_current(&app.state::<crate::commands::AppState>()) = None;
+    }
 }
 
 /// Whether an exit with no code (the last window closed) should be refused so
@@ -321,8 +373,17 @@ pub fn main_window_destroyed(app: &AppHandle) {
 /// a recording still running here means Windows itself is ending the app (sign
 /// out, shut down): then exit, which stops and saves.
 pub fn stay_in_tray(app: &AppHandle) -> bool {
-    let on = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).close_to_tray;
-    on && !is_recording(app)
+    let rs = app.state::<RecState>();
+    let on = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).close_to_tray;
+    // A window we closed ourselves (hardening refused) is not Windows ending
+    // the app, so a running recording keeps going in the tray.
+    let refused = rs.window_refused.swap(false, Ordering::Relaxed);
+    on && (refused || !is_recording(app))
+}
+
+/// Marks the next last-window exit as caused by our own refusal of a window.
+pub fn note_window_refused(app: &AppHandle) {
+    app.state::<RecState>().window_refused.store(true, Ordering::Relaxed);
 }
 
 /// Stop if recording. Used before the window closes or the app quits.
@@ -507,6 +568,9 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .icon(dot([128, 128, 128]))
         .tooltip("BabelSteps: not recording")
         .menu(&menu)
+        // Right-click opens the menu; double-click opens the window. A menu on
+        // left-click would swallow the double-click.
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main(app),
             "pause" => toggle_pause(app),
