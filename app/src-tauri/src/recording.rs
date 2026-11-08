@@ -210,10 +210,26 @@ fn show_main(app: &AppHandle) {
 }
 
 /// Stop if recording. Used before the window closes or the app quits.
-pub fn stop_if_recording(app: &AppHandle) {
+/// On failure the caller keeps the app open and tells the user (see `report_stop_failure`).
+pub fn stop_if_recording(app: &AppHandle) -> AppResult<()> {
     if is_recording(app) {
-        let _ = stop(app);
+        stop(app).map(|_| ())
+    } else {
+        Ok(())
     }
+}
+
+/// Tell the user that stopping on close did not work, so the close is not silent.
+pub fn report_stop_failure(app: &AppHandle, err: &AppError) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.dialog()
+        .message(format!(
+            "BabelSteps could not stop and save the recording, so it stayed open. \
+             Your steps so far are kept in the recording folder.\n\n{err}"
+        ))
+        .title("Recording not saved cleanly")
+        .kind(MessageDialogKind::Error)
+        .show(|_| {});
 }
 
 // ---- commands ----------------------------------------------------------------
