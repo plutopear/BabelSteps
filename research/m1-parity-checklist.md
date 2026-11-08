@@ -22,13 +22,13 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
-**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1), and three minor ones: a per-step time in exports (PSR-2), a "typed text was not recorded" notice (PSR-3), step counts in the document (PSR-5). A6 is decided (Q13) but not built.
+**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1), and three minor ones: a per-step time in exports (PSR-2), a "typed text was not recorded" notice (PSR-3), step counts in the document (PSR-5). A6 is decided (Q13) and built on 2026-11-08, waiting for its first Windows run.
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
 **Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, passed on 2026-11-08 (67 of 67, `research/m1-results.md`): typing with keystrokes off, step titles without the window title, the outline and the click marker, on our own test window. That moves the self-test half of A2, A3 and A11 forward; real apps are still untested. Known gap: taskbar buttons and caption text in newer title bars.
 
-**Claude can build without the owner:** smaller stored images (PSR-1), the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
+**Claude can build without the owner:** smaller stored images (PSR-1), the opt-in full window title (A3). The window-or-monitor choice (A6, Q13) was built on 2026-11-08 and needs a self-test run on Windows.
 
 ## Summary
 
@@ -39,7 +39,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | A3 | Write a step title per click from the element's name and type plus the app name (not the window title). Right and middle clicks use the same wording. Showing the full title is an opt-in. Fall back to coordinates when there is no name. | Partial |
 | A4 | Add a comment at any point during a recording, by hotkey or from the app. | Partial |
 | A5 | Pause and resume without ending the recording. | Partial |
-| A6 | Record the full screen, or a chosen window or monitor. | Not built |
+| A6 | Record the full screen, or a chosen window or monitor. | Partial |
 | A7 | Recording works correctly on several monitors and with mixed display scaling (DPI). | Partial |
 | A8 | Screenshot retention is configurable. Ours defaults to unlimited with a size warning (Q12), where Steps Recorder keeps the last 25. | Partial |
 | A9 | Output one self-contained file that opens without the app (format under Q2: our own format, no .mht). | Owner decision |
@@ -109,13 +109,14 @@ Pause and resume without ending the recording.
 - **Evidence:** capture_selftest checks 'pause: clicks while paused are not recorded' and 'pause: no image from a paused click is on disk' (m1-results 'Recording engine self-test'; 55/55 run). Live app: m1-results 'First live test (2026-11-07)', row 'Ctrl+Alt+Shift+P pauses and resumes; a click while paused is not recorded' Pass. 'Tray test (2026-11-07)': tray menu Pause/Resume worked (state log); the owner saw the amber icon. Unit tests core/src/normalize.rs nothing_typed_while_paused_reaches_a_step, pause_flushes_the_current_run_first.
 - **Gap:** Downgraded from pass. The live app evidence predates the hotkey and recording.rs changes (commits 984c562, e40609d). Pausing from the panel button is not separately recorded. Typing while paused is covered only by unit tests: every live pause case used keystrokes off and only clicks. Steps Recorder's pause behavior is unverified. To close: the owner-approved live run of the current release exe.
 
-### A6: Not built
+### A6: Partial
 
 Record the full screen, or a chosen window or monitor.
 
 - **Steps Recorder:** Every step image was the full monitor at native resolution. Unverified whether its UI can limit capture to one window; second-monitor behavior unverified.
 - **Evidence:** The full-screen default works: capture_selftest images are full monitor frames (m1-results 'Recording engine self-test'). Q13 (docs/06-open-questions.md): full screen by default, with a choice of window or monitor. No scope option exists: grep for scope or window/monitor choice in core/src/settings.rs, app/src/lib/*.svelte and app/src-tauri/src/recording.rs found nothing.
-- **Gap:** Changed from partial to not-built, because the part that makes this requirement (choosing a window or monitor) does not exist. Needs building, then a self-test that also checks that redaction and the outline stay correct when the capture is cropped. Choosing a monitor needs multi-monitor hardware to test (Q20).
+- **Built (2026-11-08):** the Record dialog offers "The whole screen" (default), each monitor when there is more than one, and each open window. Hotkey starts record the whole screen. Clicks and typing outside the choice are not recorded. A window's screenshots are cut to the window (plus the menu or dialog clicked) before the password scan, so the rest of the screen never reaches the disk. Code: `platform/windows/src/scope.rs`, `pipeline.rs` `handle_raw`, `Frame::crop`. New self-test `scopes` (7 checks): the window cut matches the window's size, the password field is black and the user name field is not in the cut images, the click marker lands on the click, a click on another window makes no step, a monitor choice gives full-monitor images, and a disconnected monitor is refused. Unit tests: `Rect::intersect`/`union` (core), `Frame::crop`. Compiled for Windows from Linux only; **not run on Windows yet**.
+- **Gap:** Run the self-test on the owner's PC. The out-of-scope monitor case needs a second monitor (Q20). Windows lying on top of the chosen window still show inside its cut. A window spanning two monitors is cut to the part on the clicked monitor. A second window of the same app with no title bar counts as part of the chosen window (the rule that lets its menus and drop-downs in). Real apps (Edge, Office, store apps) are untested.
 
 ### A7: Partial
 

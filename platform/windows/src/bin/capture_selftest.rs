@@ -466,32 +466,54 @@ fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     };
     let ring = |f: &Frame| [(18, 0), (-18, 0), (0, 18), (0, -18)].iter().filter(|(dx, dy)| f.sample(bx + dx, by + dy) == Some(MARKER)).count();
 
-    // One window: the test window itself.
+    // One window: the test window itself. A click in the password field,
+    // then one on the background.
     let r = start_scoped(dir, "scope-window", Scope::Window(win.hwnd_id()))?;
-    win.safe_click(bx, by)?;
-    ms(500);
+    win.allow_focus(true);
+    let clicked = (|| -> Result<()> {
+        let (x, y) = win.pass_center()?;
+        win.safe_click(x, y)?;
+        ms(400);
+        win.safe_click(bx, by)?;
+        ms(500);
+        Ok(())
+    })();
+    win.allow_focus(false);
     let (bundle, report) = stop(r)?;
+    clicked?;
     let cl = clicks(&report.recording);
     let expect = testing::window_bounds(win.hwnd_id())
         .and_then(|b| b.intersect(&babelsteps_core::Rect { x: m.x, y: m.y, w: m.w, h: m.h }));
-    let shot = match (cl.first().and_then(|s| s.screenshot.as_deref()), expect) {
-        (Some(rel), Some(e)) => Some((load(&bundle, rel, &Monitor { x: e.x, y: e.y, ..m })?, e)),
-        _ => None,
-    };
+    let mut shots = Vec::new();
+    if let Some(e) = expect {
+        for s in &cl {
+            if let Some(rel) = s.screenshot.as_deref() {
+                shots.push(load(&bundle, rel, &Monitor { x: e.x, y: e.y, ..m })?);
+            }
+        }
+    }
+    let cut = expect.is_some_and(|e| {
+        (e.w < m.w || e.h < m.h) && shots.iter().all(|f| f.width as i32 == e.w && f.height as i32 == e.h)
+    });
     c.check(
-        "one window: a click in the window is recorded, its screenshot cut to the window",
-        cl.len() == 1 && shot.as_ref().is_some_and(|(f, e)| f.width as i32 == e.w && f.height as i32 == e.h && (e.w < m.w || e.h < m.h)),
+        "one window: clicks in the window are recorded, each screenshot cut to the window",
+        cl.len() == 2 && shots.len() == 2 && cut,
         format!(
-            "clicks {}, image {:?}, window {:?}, monitor {}x{}",
+            "clicks {}, images {:?}, window {:?}, monitor {}x{}",
             cl.len(),
-            shot.as_ref().map(|(f, _)| (f.width, f.height)),
+            shots.iter().map(|f| (f.width, f.height)).collect::<Vec<_>>(),
             expect.map(|e| (e.w, e.h)),
             m.w,
             m.h
         ),
     );
-    // The marker is drawn at the click, so the cut is not shifted.
-    let points = shot.as_ref().map_or(0, |(f, _)| ring(f));
+    // Redaction and drawing use screen coordinates, so a cut frame must not shift them.
+    let (pass, user) = (win.pass_rect()?, win.user_rect()?);
+    let black = shots.iter().filter(|f| all_black(f, pass)).count();
+    c.check("one window: the password field is solid black in every cut screenshot", !shots.is_empty() && black == shots.len(), format!("{black} of {}", shots.len()));
+    let user_black = shots.iter().filter(|f| all_black(f, user)).count();
+    c.check("one window control: the user name field is not blacked out", !shots.is_empty() && user_black == 0, format!("blacked in {user_black}"));
+    let points = shots.last().map_or(0, |f| ring(f));
     c.check("one window: the click marker lands on the click in the cut screenshot", points == 4, format!("{points}/4 ring points red"));
 
     // Control: scoped to another window, the same click is not recorded.
