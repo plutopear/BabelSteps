@@ -26,7 +26,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 **Status (2026-11-06, later):** the recording engine is built in `platform/windows` (branch `m1-capture`) and passes its self-test 36/36 on one monitor (`research/m1-results.md`). Next: wire it into the app (start, pause, stop, comments, hotkeys, tray indicator), then test real apps, multiple monitors, admin windows, sleep and lock, and build the parity checklist.
 
 **Status (2026-11-06, end of session):** the recorder is wired into the app: record dialog (keystrokes off by default), recording panel, Ctrl+Alt+Shift+R/P/N/X hotkeys (excluded from recordings), tray indicator, and stop-and-save on close and quit. Privacy audit passed. First live test passed on 2026-11-07 (`research/m1-results.md`): UI start, all hotkeys, pause, note, stop, close while recording. Not yet: the tray menu, quitting from the tray. Next, in order:
-1. The tray menu and quitting from it while recording (needs the owner to click the tray icon once).
+1. Done 2026-11-07: tray menu and quit while recording pass. To fix: clicks on the BabelSteps tray icon are recorded as steps.
 2. Real apps: password fields in Edge, Chrome and Firefox; an elevated window (Q17).
 3. Sleep, lock, resolution change; multiple monitors if the owner has a second one.
 4. The Steps Recorder parity checklist, item by item (the M1 exit).

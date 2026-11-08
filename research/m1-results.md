@@ -68,3 +68,12 @@ Release build, the owner's desktop with their agreement, keystroke capture off, 
 | On disk after relaunch | 11 steps (5 test-window clicks, 1 note, 5 other clicks, most likely the owner's own); 10 images, 0 missing, 0 unreferenced; no window titles; no PNG metadata chunks; 0 withheld |
 
 **Not tested:** the tray icon's look and its menu (Pause, Stop, Quit), because clicking it needs real mouse input on the taskbar; quitting from the tray while recording; Windows sign-out or shutdown while recording; keystroke capture on; real apps (browsers, password fields, elevated windows).
+
+## Tray test (2026-11-07)
+
+Release build; the owner clicked the tray icon while a test recording ran, and confirmed the colours and tooltip.
+
+- Red dot while recording, tooltip "recording. Keystrokes off"; amber when paused: as expected (owner's observation).
+- Tray menu Pause/Resume: the recorder paused and resumed (state log).
+- Tray menu Quit while recording: saved first, then exited. On relaunch, 5 steps and 5 images, 0 missing, 0 unreferenced.
+- **Finding:** clicks on the tray icon itself (owned by the Windows taskbar, not by BabelSteps) were recorded as steps: 3 of 5, one of them naming the BabelSteps tray button. Clicks on the tray menu were not recorded (it belongs to BabelSteps). Steps Recorder leaves its own controls out, so these clicks should be dropped.
