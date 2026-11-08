@@ -31,13 +31,16 @@ Show-Matches "docs/06-open-questions.md" '^\*\*Open:' | ForEach-Object {
 }
 
 ""
-"== Known test gaps (research/m0-spike-results.md) =="
-if (Test-Path "research/m0-spike-results.md") {
-    $lines = Get-Content "research/m0-spike-results.md"
-    $start = [array]::IndexOf($lines, "## Not tested")
-    if ($start -ge 0) {
-        $lines[($start + 1)..($lines.Count - 1)] |
-            Where-Object { $_ -match '^\| ' -and $_ -notmatch '^\| (Gap|---)' } |
-            ForEach-Object { "- " + ($_ -split '\|')[1].Trim() }
+"== M1 parity checklist (research/m1-parity-checklist.md) =="
+if (Test-Path "research/m1-parity-checklist.md") {
+    $lines = Get-Content "research/m1-parity-checklist.md" -Encoding UTF8
+    $lines | Where-Object { $_ -like '**Where it stands*' } | Select-Object -First 1 |
+        ForEach-Object { if ($_.Length -gt 220) { $_.Substring(0, 220) + "..." } else { $_ } }
+    "Not yet passing:"
+    $open = $lines | Where-Object { $_ -match '^\| [A-Z]+-?\d+ \|' } | ForEach-Object {
+        $c = $_ -split '\|'
+        $st = $c[-2].Trim()
+        if ($st -ne 'Pass' -and $st -notlike 'Out of scope*') { "$($c[1].Trim()) ($st)" }
     }
+    "  " + ($open -join ', ')
 }

@@ -59,6 +59,7 @@ Use these without being asked. They keep long output out of the conversation and
 | Starting a session, after a context reset, or asked what's next | `babelsteps-status` skill |
 | After any Rust change, and before every commit | `babelsteps-check` skill |
 | After changing hooks, capture, UI Automation, redaction, or the step pipeline | `capture-selftest` skill (warn the owner first) |
+| After changing the app's recording wiring, tray, window, or settings | `capture-selftest` skill's live app tests: `live-app-test.ps1`, `live-tray-test.ps1` (owner's OK each run) |
 | A self-test failed, its numbers need explaining, or two runs need comparing | `capture-results-analyst` agent |
 | Before committing changes to capture, redaction, storage, logging, export, dependencies, or Tauri permissions | `privacy-auditor` agent. Fix any FAIL before committing |
 | Calling a Windows API, or a `windows` crate compile error | `windows-api-lookup` skill. Never read that crate's source files whole |
@@ -81,6 +82,8 @@ Windows 11, PowerShell 5.1 (no `&&`). If `cargo` or `node` is not found, the she
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
 ```
+
+Build the release app with `cargo build --release -p babelsteps-app --features custom-protocol --target-dir target/app-release`. Without the feature, the window shows "localhost refused to connect".
 
 Install tools with winget when a package exists; installs the work needs are already approved. `python -I` ignores `PYTHON*` environment variables, so set stdout encoding inside the script.
 
