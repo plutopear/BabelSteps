@@ -17,6 +17,7 @@
 
 mod capture;
 mod clock;
+pub mod elevation;
 mod frame;
 mod hooks;
 pub mod hotkeys;

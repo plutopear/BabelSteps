@@ -11,6 +11,7 @@ import type {
   Recording,
   Settings,
   RecordingStatus,
+  Template,
 } from "./types";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -76,8 +77,8 @@ export function describeError(e: unknown, doing: string): string {
 export const api = {
   defaultFolder: () => call<string>("get_default_library_folder"),
   list: (folder?: string) => call<LibraryListing>("list_library", { folder: folder ?? null }),
-  create: (title: string, folder?: string) =>
-    call<OpenedRecording>("create_recording", { folder: folder ?? null, title }),
+  create: (title: string, folder?: string, template: Template = "blank") =>
+    call<OpenedRecording>("create_recording", { folder: folder ?? null, title, template }),
   open: (path: string) => call<OpenedRecording>("open_recording", { path }),
   close: () => call<void>("close_recording"),
   save: (recording: Recording) => call<void>("save_recording", { recording }),

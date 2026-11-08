@@ -10,6 +10,7 @@ use babelsteps_core::export::{export_markdown_with as core_export_markdown, vali
 use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::Recording;
 use babelsteps_core::storage::{delete_bundle, library, Bundle};
+use babelsteps_core::templates::Template;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -162,6 +163,8 @@ pub fn create_recording(
     rec: State<'_, RecState>,
     folder: Option<String>,
     title: String,
+    // Omitted or null means blank, so older callers keep working.
+    template: Option<Template>,
 ) -> AppResult<OpenedRecording> {
     ensure_idle(&rec)?;
     let title = title.trim().to_string();
@@ -173,7 +176,14 @@ pub fn create_recording(
         None => default_library(&app)?,
     };
     let bundle = Bundle::create(&dir, &title, &new_id(), now_ms())?;
-    let recording = bundle.load()?;
+    let mut recording = bundle.load()?;
+    let blocks = template.unwrap_or_default().initial_blocks();
+    if !blocks.is_empty() {
+        // A template is ordinary blocks, saved like any edit. If this fails the
+        // new empty recording stays in the library and the error is shown.
+        recording.blocks = blocks;
+        bundle.save(&recording)?;
+    }
     let path = bundle.path().to_string_lossy().into_owned();
     *lock_current(&state) = Some(bundle);
     Ok(OpenedRecording { path, recording })

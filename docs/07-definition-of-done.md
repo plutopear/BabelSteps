@@ -70,7 +70,7 @@ Done when a stranger can install BabelSteps without being scared off and the pri
 | 3.2 | Installer under 20 MB installs and uninstalls cleanly on a fresh Windows 11 machine (D4) | Clean virtual machine | Not started |
 | 3.3 | Signed through SignPath, or the unsigned fallback is complete: SHA-256 hashes, winget, "why Windows warns you" page, Defender submission (Q16) | Release page | Not started |
 | 3.4 | CI runs unit tests, golden files, the no-network dependency check and a runtime socket test on every change; a failure blocks release | GitHub checks | Partial: CI runs all four (runtime test covers core only, not Windows capture); the repository is public (2026-11-08) and its `main` ruleset reportedly requires the Windows, Linux and Rust dependencies checks, not verified here (`04-privacy-and-security.md` section 8) |
-| 3.5 | Admin-window approach decided and shipped (Q17) | Decision and test | Needs decision |
+| 3.5 | Admin-window approach decided and shipped (Q17, now Q31) | Decision and test | Partial: decided 2026-11-08 (skip and warn, plus run as administrator); the panel warning is built; the warning on screen and the run-as-administrator password protection are not tested |
 | 3.6 | Record, edit and export work keyboard-only and with Narrator; themes follow Windows (C5, C6) | Accessibility run | Not started |
 | 3.7 | User guide and privacy page published | Website or repo | Not started |
 | 3.8 | The owner installs the release on a PC that never had BabelSteps and records and exports a guide | Owner | Not started |
