@@ -47,6 +47,10 @@ jobs:
   secrets:
     name: Secret scan (whole history)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The action lists a pull request's commits to scan just those.
+      pull-requests: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
