@@ -432,14 +432,43 @@ The *final* dialog
             process_name: "notepad.EXE".into(),
             ..Default::default()
         };
-        let d = describe_click(MouseButton::Left, 1, 2, Some(&t));
+        let d = describe_click(MouseButton::Left, 1, 2, Some(&t), false);
         assert_eq!(d, "Left-click \"Save\" button in notepad");
         assert!(!d.contains("Secret"));
         // Title present but no process name: no app part at all.
         let t2 = Target { window_title: Some("Secret".into()), ..Target { name: "Save".into(), ..Default::default() } };
-        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t2)), "Left-click \"Save\"");
-        assert_eq!(describe_click(MouseButton::Right, 5, 6, None), "Right-click at (5, 6)");
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t2), false), "Left-click \"Save\"");
+        assert_eq!(describe_click(MouseButton::Right, 5, 6, None, false), "Right-click at (5, 6)");
         let unnamed = Target { control_type: "Pane".into(), ..Default::default() };
-        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&unnamed)), "Left-click pane at (5, 6)");
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&unnamed), false), "Left-click pane at (5, 6)");
+    }
+
+    #[test]
+    fn click_descriptions_name_the_window_only_with_the_opt_in() {
+        let t = Target {
+            name: "Save".into(),
+            control_type: "Button".into(),
+            window_title: Some("Secret plans - Notepad".into()),
+            process_name: "notepad.EXE".into(),
+            ..Default::default()
+        };
+        // Off: exactly the default wording, title or not.
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t), false), "Left-click \"Save\" button in notepad");
+        // On: the window, without repeating an app the title already names.
+        assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&t), true), "Left-click \"Save\" button in \"Secret plans - Notepad\"");
+        // On, and the title does not name the app: the app follows in brackets.
+        let ex = Target { window_title: Some("Downloads".into()), process_name: "explorer.exe".into(), ..t.clone() };
+        assert_eq!(describe_click(MouseButton::Right, 1, 2, Some(&ex), true), "Right-click \"Save\" button in \"Downloads\" (explorer)");
+        // On, but no title was read (or it was blank): the app name, as before.
+        for blank in [None, Some("   ".to_string())] {
+            let nt = Target { window_title: blank, ..t.clone() };
+            assert_eq!(describe_click(MouseButton::Left, 1, 2, Some(&nt), true), "Left-click \"Save\" button in notepad");
+        }
+        // On, unnamed element: coordinates plus the window.
+        let pane = Target { name: String::new(), control_type: "Title bar".into(), ..t.clone() };
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&pane), true), "Left-click title bar at (5, 6) in \"Secret plans - Notepad\"");
+        assert_eq!(describe_click(MouseButton::Left, 5, 6, Some(&pane), false), "Left-click title bar at (5, 6)");
+        // No target: nothing to name.
+        assert_eq!(describe_click(MouseButton::Middle, 5, 6, None, true), "Middle-click at (5, 6)");
     }
 }

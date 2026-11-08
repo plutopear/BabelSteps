@@ -852,6 +852,39 @@ fn titles_typing_outline(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result
     Ok(())
 }
 
+/// A3 opt-in on: a click on our own window names the window title, and the
+/// title is saved with the step. The default-off half is checked in
+/// `titles_typing_outline`; this half proves the setting reaches the pipeline.
+fn window_title_opt_in(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let window_title = win.title();
+    let bundle = Bundle::create(dir, "wintitle", "wintitle", 0)?;
+    let rec = bundle.load()?;
+    let r = Recorder::start(bundle, rec, RecorderConfig { show_window_titles: true, ..config(false) })?;
+    ms(700);
+    let acted = (|| -> Result<()> {
+        let (x, y) = win.save_center()?;
+        win.safe_click(x, y)?;
+        ms(500);
+        Ok(())
+    })();
+    win.set_red(false);
+    let (bundle, report) = stop(r)?;
+    acted?;
+    let titles: Vec<String> = steps(&report.recording).iter().map(|s| s.title.clone()).collect();
+    let want = format!("Left-click \"Save\" button in \"{window_title}\"");
+    c.check(
+        "window titles on: the Save click names the window",
+        !window_title.is_empty() && titles.iter().any(|t| t.starts_with(&want)),
+        format!("titles: {titles:?}"),
+    );
+    c.check(
+        "window titles on: the title is saved in the recording",
+        !files_containing(&bundle, &window_title).is_empty(),
+        "control for the default-off check: the same search finds it when it is there",
+    );
+    Ok(())
+}
+
 fn run(out: &Path) -> Result<Checks> {
     let mut c = Checks { lines: Vec::new(), passed: 0, failed: 0 };
     std::fs::create_dir_all(out)?;
@@ -868,6 +901,7 @@ fn run(out: &Path) -> Result<Checks> {
         before_state(&mut c, &win, &work, true)?;
         let images = password(&mut c, &win, &work, &crop_out)?;
         titles_typing_outline(&mut c, &win, &work)?;
+        window_title_opt_in(&mut c, &win, &work)?;
         window_changes_after_click(&mut c, &win, &work)?;
         fail_closed(&mut c, &win, &work, images)?;
         timeout_and_recovery(&mut c, &win, &work)?;

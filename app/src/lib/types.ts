@@ -125,4 +125,6 @@ export interface Settings {
   hotkeys: { startStop: string; pause: string; note: string; stop: string };
   /** Closing the window keeps BabelSteps running in the tray (default false: closing quits). */
   closeToTray: boolean;
+  /** A3: name the full window title in click steps. Off by default for privacy. */
+  showWindowTitles: boolean;
 }

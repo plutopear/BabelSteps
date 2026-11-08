@@ -191,7 +191,10 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
             return Err(e.into());
         }
     };
-    let show_border = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).show_capture_border;
+    let (show_border, show_window_titles) = {
+        let s = rs.settings.lock().unwrap_or_else(|e| e.into_inner());
+        (s.show_capture_border, s.show_window_titles)
+    };
     let ignore_keys = current_hotkeys(app).iter().map(Hotkey::from_spec).collect();
     let config = RecorderConfig {
         keystrokes_enabled: keystrokes,
@@ -200,6 +203,7 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
         // The tray tooltip starts with this. A colon cannot appear in file
         // names, so File Explorer items are never matched.
         ignore_shell_elements_named: Some("BabelSteps:".to_string()),
+        show_window_titles,
         ..RecorderConfig::default()
     };
     match Recorder::start(bundle, recording, config) {
