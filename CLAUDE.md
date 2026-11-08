@@ -13,6 +13,7 @@ Read the section you need, not the whole file. Start a session with the `babelst
 | Need | Look in |
 | --- | --- |
 | Current milestone, next tasks | `docs/05-roadmap.md` |
+| Exit criteria for each milestone | `docs/07-definition-of-done.md` |
 | Decisions already made, open questions | `docs/06-open-questions.md` (do not re-ask what is answered) |
 | What to build, with IDs like A2, B12, D6 | `docs/02-requirements.md` |
 | Design, threads, data model | `docs/03-architecture.md` |
@@ -89,4 +90,4 @@ Install tools with winget when a package exists; installs the work needs are alr
 
 ## Git
 
-Work on a branch, not `main`. Commit finished work. There is no remote yet. Merge to `main` only when the owner asks.
+Work on a branch, not `main`. Commit finished work. The remote is `plutopear/BabelSteps` on GitHub; changes reach `main` through pull requests. Merge to `main` only when the owner asks.

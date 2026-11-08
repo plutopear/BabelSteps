@@ -1,6 +1,6 @@
 # Roadmap
 
-Milestones are sequenced by dependency, not calendar dates. Sizing and dates get set once the Q-decisions are made and the team and time budget are known.
+Milestones are sequenced by dependency, not calendar dates. The pass/fail exit criteria for each milestone, and their current status, are in `07-definition-of-done.md`. Each milestone ends with the owner doing one real task with the build. Sizing and dates get set once the Q-decisions are made and the team and time budget are known.
 
 ## M0 — Decisions and spikes
 
@@ -16,6 +16,8 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 - Spike 4: one-recording end-to-end path: click → screenshot → step → Markdown file.
 
 **Exit:** the spikes meet the D-targets or the targets are revised with reasons. Stack confirmed.
+
+**Closed 2026-11-08.** All exit conditions are met (`07-definition-of-done.md`, M0). Q17 was deliberately left for the M1 admin-window test; remaining gaps moved into M1.
 
 ## M1 — Windows capture parity
 
