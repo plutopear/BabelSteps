@@ -205,3 +205,17 @@ Built in `core/src/screenshot.rs`. Measured in a Linux cloud container (4 cores)
 - Options measured and not used: JPEG at quality 80 to 95 was larger than the compressed PNG on every UI screen (docs at quality 85: 1,897 KB), and blurs text. Lossless WebP from the `image` crate was larger than PNG on the form page (1,129 KB). Deflate level 6 was 1-15% smaller than level 3 for about twice the time. Quality 80 JPEG text looked softer than 85 at 2x zoom.
 - Exports used the fastest PNG setting with an alpha channel; they now use the same compressed RGB PNG, or JPEG for JPEG sources, still re-encoded from pixels with no metadata.
 - **Not tested:** real Windows screens (ClearType text may compress worse; M0 measured 1.5-3.8 MB for real fast-PNG frames, in the same range as the test pages); the fastest-PNG fallback when frames queue up (more than 100 MB in flight); encode times on the owner's PC; a real 100-step recording; the PDF size; the capture self-test on this build.
+
+## 2026-11-08: PDF size is set by WebView2, not by our image files (PSR-1)
+
+The owner set a target on 2026-11-08: a typical 30-step recording under 10 MB, about what Steps Recorder produces, so it can be emailed.
+
+A first attempt saved each print image as the smallest of JPEG, 256-colour PNG and full PNG. On the test pages that cut the exported image files for 30 steps to 7.9 MB (1920x1080) and 9.1 MB (5120x1440), but 20.9 MB at 2560x1440. The PDF self-test on the owner's PC (release build, 24 logical CPUs, PC in normal use, two runs) then showed:
+
+- **No JPEG reached the PDF.** WebView2 decodes every image and compresses the pixels again itself. The 100-step 5120x1440 PDF stayed at 225.6 MB, the same as on 2026-11-06.
+- The 1920x540 run grew from 16.1 MB to 79.1 MB. Our JPEG versions of the patterned test images added pixel noise, which WebView2's own compression handles badly.
+- Preparing images took 3.8-4.3 s instead of 2.1 s. The total went to 9.4-10.2 s, and one of four timed exports missed D5 (under 10 s).
+
+That attempt was reverted. Print images (HTML and PDF) now use the fastest PNG setting, because their compression cannot change the PDF size. Markdown exports and stored screenshots keep the tighter encoding from the section above.
+
+**What this means for the 10 MB target:** with WebView2 printing, the PDF size depends only on how many pixels each image has and how simple they are. Choosing a file format does nothing. The levers left are a smaller print width, or writing the PDF ourselves so images can be embedded as JPEG or palette data. A real 30-step recording has not been exported yet, so the real PDF size is unknown: the patterned self-test images compress far worse than real screens.

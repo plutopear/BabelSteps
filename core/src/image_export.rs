@@ -43,7 +43,13 @@ pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) ->
         img = resize(&img, max, h, FilterType::CatmullRom);
     }
     let (width, height) = img.dimensions();
-    screenshot::encode(format, img.as_raw(), width, height, Effort::Normal).map_err(ExportError::Image)
+    // Print images (HTML, PDF) use the fastest PNG setting. WebView2 decodes
+    // every image and re-compresses the pixels itself when it writes the PDF
+    // (measured 2026-11-08: no JPEG survived into the PDF), so our compression
+    // does not change the PDF size, only the export time (D5: 10 s per 100
+    // steps). Markdown exports are kept as files, so they are compressed.
+    let effort = if max_width.is_some() { Effort::Hurry } else { Effort::Normal };
+    screenshot::encode(format, img.as_raw(), width, height, effort).map_err(ExportError::Image)
 }
 
 #[cfg(test)]
