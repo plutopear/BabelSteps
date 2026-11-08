@@ -30,6 +30,15 @@ impl Hotkey {
         Hotkey { ctrl: true, alt: true, shift: true, win: false, vk: letter.to_ascii_uppercase() as u32 }
     }
 
+    /// From the settings text. Letters and digits use their ASCII code, F1 to F12 use 0x70 to 0x7B.
+    pub fn from_spec(spec: &babelsteps_core::settings::HotkeySpec) -> Hotkey {
+        let vk = match spec.key.strip_prefix('F').and_then(|n| n.parse::<u32>().ok()) {
+            Some(n) if spec.key.len() >= 2 => 0x70 + n - 1,
+            _ => spec.key.chars().next().map(|c| c.to_ascii_uppercase() as u32).unwrap_or(0),
+        };
+        Hotkey { ctrl: spec.ctrl, alt: spec.alt, shift: spec.shift, win: spec.win, vk }
+    }
+
     fn modifiers(&self) -> HOT_KEY_MODIFIERS {
         let mut m = MOD_NOREPEAT;
         for (on, flag) in [(self.ctrl, MOD_CONTROL), (self.alt, MOD_ALT), (self.shift, MOD_SHIFT), (self.win, MOD_WIN)] {
@@ -83,5 +92,20 @@ impl Drop for Hotkeys {
             }
             let _ = j.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use babelsteps_core::settings::HotkeySpec;
+
+    #[test]
+    fn settings_text_becomes_virtual_keys() {
+        let k = Hotkey::from_spec(&HotkeySpec::parse("Ctrl+Alt+Shift+r").unwrap());
+        assert_eq!(k, Hotkey::ctrl_alt_shift('R'));
+        assert_eq!(Hotkey::from_spec(&HotkeySpec::parse("Ctrl+Alt+F1").unwrap()).vk, 0x70);
+        assert_eq!(Hotkey::from_spec(&HotkeySpec::parse("Ctrl+Alt+F12").unwrap()).vk, 0x7B);
+        assert_eq!(Hotkey::from_spec(&HotkeySpec::parse("Ctrl+Win+5").unwrap()).vk, '5' as u32);
     }
 }

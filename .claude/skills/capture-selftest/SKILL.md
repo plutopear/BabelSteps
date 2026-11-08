@@ -38,3 +38,11 @@ Use the `record` mode only with the owner's agreement. It records their real cli
 ## Browser password fields
 
 `target/release/browser-selftest.exe "<path to msedge.exe or chrome.exe>"` (build with `cargo build --release -p babelsteps-windows --features selftest --bins`). It opens our own test page in the browser with a throwaway profile, takes focus for about 45 seconds, and records the whole screen. The same rules apply: warn the owner and get their OK for each run, and don't view anything except the page crops it keeps in `target/browser-selftest/`.
+
+## Live test of the real app
+
+`scripts/live-app-test.ps1` runs the release app (`target\app-release\release`, built with `--features custom-protocol`) for about two minutes. It drives the app's own buttons through a local WebView2 debugging port, not with the mouse. It sends real clicks only to its own small test window, and sends shortcut keys only when BabelSteps holds them. It covers: start from the UI, pause and note (button and shortcut), stop button and retention notice, a remapped start shortcut, stop-now, resetting shortcuts, memory and CPU, sockets while recording, and images on disk. It saves your settings first and restores them afterwards, and it deletes its test recording. The recording includes the owner's whole screen and any real clicks they make, so get their OK for each run and do not view its images.
+
+## Live test of close to the tray
+
+`scripts/live-tray-test.ps1` tests "Keep running in the tray" (Q21) on the release app. It covers: memory with the window closed (D1), shortcuts with no window, rebuilding the window, close during a recording, the context-menu hardening check (with a control), and switching back to Quit. It takes about 1.5 minutes. Get the owner's OK for each run, because it records their screen and the window takes focus a few times. It reports only window class names, never titles. Shared helpers are in `scripts/live-common.ps1`.

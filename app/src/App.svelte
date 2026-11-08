@@ -4,8 +4,9 @@
   import { live, say } from "./lib/announce.svelte";
   import Editor from "./lib/Editor.svelte";
   import Library from "./lib/Library.svelte";
+  import Settings from "./lib/Settings.svelte";
   import RecordingPanel from "./lib/RecordingPanel.svelte";
-  import { rs, startPolling, statusLabel } from "./lib/recording.svelte";
+  import { refreshStatus, rs, startPolling, statusLabel } from "./lib/recording.svelte";
   import type { OpenedRecording } from "./lib/types";
 
   let opened = $state<OpenedRecording | null>(null);
@@ -13,6 +14,7 @@
   let loadKey = $state(0);
   let focusId = $state<string | null>(null);
   let notice = $state("");
+  let showSettings = $state(false);
 
   const st = $derived(rs.status);
 
@@ -53,6 +55,8 @@
 
   function stopped(o: OpenedRecording) {
     rs.status = { ...rs.status, active: false, paused: false };
+    // Pick up the stop notice (retention, size warning) now, not at the next poll.
+    refreshStatus();
     show(o);
     say("Recording saved. Showing the new steps.");
   }
@@ -69,10 +73,17 @@
   <span class="rec-state" class:on={st.active}>
     {#if st.active}<span class="dot" class:paused={st.paused} aria-hidden="true"></span>{/if}{statusLabel(st)}
   </span>
+  <button type="button" class="settings-btn" onclick={() => (showSettings = true)} disabled={st.active}>Settings</button>
 </header>
 
 <main id="main" tabindex="-1">
   {#if notice}<p class="error" role="alert">{notice}</p>{/if}
+  {#if st.notice}
+    <p class="warn-line" role="status">
+      {st.notice}
+      <button type="button" onclick={() => api.clearNotice().then(refreshStatus)}>Dismiss</button>
+    </p>
+  {/if}
   {#if st.active}
     <RecordingPanel onstopped={stopped} />
   {:else if opened}
@@ -83,5 +94,7 @@
     <Library onopen={(o) => { beforeIds = []; opened = o; loadKey++; focusId = null; }} />
   {/if}
 </main>
+
+{#if showSettings}<Settings onclose={() => (showSettings = false)} />{/if}
 
 <div class="sr-only" aria-live="polite" role="status">{live.text}</div>

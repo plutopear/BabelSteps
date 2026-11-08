@@ -96,3 +96,94 @@ Second run: 27 of 27 checks. Both typed passwords are in no step and no file (se
 - Whether the eye button actually showed the password. The field is black in every image, and the page cannot report the state.
 - Whether Edge offered to save the password after Sign in, and what that prompt showed in the last image. Edge draws it outside the field, so redaction does not cover it. The prompt hides the password by default.
 - Password fields inside frames, fields that only look like password fields (ordinary text boxes masked by the site's own code: detection cannot see these), display scaling other than 100%, a normal browser window with tabs, Chrome, Firefox.
+
+## 2026-11-08: screen frame (C2) kept out of screenshots
+
+Self-test (release build, one monitor, Windows 11, Windows Graphics Capture, 0 GDI fallbacks): 38 of 38 pass. New check: the same frame without the capture exclusion shows 118,080 frame-coloured pixels at the screen edge in saved screenshots (the control, so the check can fail); with the exclusion there are 0. The next section extends this run.
+
+
+## 2026-11-08: expanded self-test, 55 of 55 pass
+
+Release build, one monitor, Windows 11, on the owner's daily PC. Every new check has a control that can fail:
+- Frame vs screenshots, both capture methods: Graphics Capture and the forced GDI fallback each show 118,080 frame-coloured edge pixels without the capture exclusion and 0 with it.
+- Edge clicks: the test window was moved flush to the bottom-right and top-left screen corners. A frame that is not click-through takes all 8 edge points (1 to 4 px) from the window (control); the real frame takes none, all 8 clicks per corner reached the window and were recorded with the window's own bounds, not the frame's. The Windows taskbar covers the bottom screen row when no frame is up, so a no-frame baseline there is only a yardstick.
+- Remapped shortcuts (Ctrl+Alt+Shift+F11 and F12, registered for the test): both fire; with the ignore list, 0 shortcut steps and 5 click steps; without it, 2 shortcut steps (control).
+- Retention through the finished recording (the same core function the app calls): 5 files before, keep-newest-2 leaves exactly the last 2 screenshots, the other 3 files are gone, the saved document matches and keeps all 5 steps.
+
+**Not covered:** the Settings window in the real webview; the Tauri glue (re-registering shortcuts on save, the stop notice) as one flow; multiple monitors (geometry is unit tested only); Windows 10 (unsupported, Q19). The test registered its shortcuts itself, so it does not prove the app's own start-up path.
+
+## 2026-11-08: BLOCKER, the app window does not load its UI on the owner's PC (cleared, see next section)
+
+The owner reports "localhost refused to connect" in the app window, first with a release exe built without `custom-protocol` (a known cause), then again with the corrected build (`--features custom-protocol`, in `target\app-release\release`). Cause unknown; hypotheses: the build did not embed the frontend, or the window still points at devUrl. It was not launched in this session, so nothing here proves the corrected build loads. Untested because of this: the Settings window, the app's wiring (shortcut re-registration, stop notice), the no-socket check on a running app, and the multi-monitor path. The headless self-test (55 of 55) does not touch the app window. PR #2 must not be merged until the UI is confirmed to load.
+
+## 2026-11-08: app window loads its UI (blocker cleared)
+
+Launched once with the owner's OK. Release exe rebuilt from the branch with `--features custom-protocol`; no dev server on port 1420; WebView2 started with a local debugging port (127.0.0.1 only) so the page could be read without screenshots.
+
+- The window loaded `http://tauri.localhost/`, the bundled frontend, not the dev server. The Library screen rendered (headings and buttons present, no "refused" text).
+- The Settings screen rendered: screenshot retention, the red recording frame, and the four shortcuts (8 inputs). Cancelled without saving, so the owner's settings were not changed.
+- Sockets while running (the app process, its children, and its WebView2 processes): none, except the test's own debugging listener on 127.0.0.1:9333. This is a single idle snapshot, not a recording-and-export session.
+- Closing the window ended the process; nothing was left running.
+- Build guard (commit 19b70f1): refuses `cargo build --release` without `custom-protocol`, accepts it with the feature.
+
+**Not tested:** changing and saving settings, shortcut re-registration after a save, the stop notice, a recording in the release app, the owner's own click-through. Why the owner saw the error the second time is unknown.
+
+## 2026-11-08: self-test with titles, typing and outline checks, 67 of 67 pass
+
+Release build, one monitor at 100% scaling, our own test window, synthetic input, run with the owner's OK. New section (12 checks):
+
+- **A11, keystrokes off:** typing into the user name field gave exactly one step, `Typed in "User name:"`. The typed text is in no step and no file (UTF-8 and UTF-16). Control: the text was read back from the field.
+- **A3, titles:** the Save click reads `Left-click "Save" button in capture-selftest`. A right click on the window background is one `Right-click window at (x, y)` step. The window title is in no step and no file. Those background clicks hit the window element, whose accessible name is the window title, so this check exercised the 2026-11-08 fix (before it, the title would have been in the step). Control: the title was read back from the window.
+- **A2, outline and marker:** the Save click's image has the green outline on all four sides, 1 to 3 px outside the button, and none 8 px further out (control). The red ring sits around the click point; another click's image has no ring there (control).
+
+Timings: analysis per event mean 66 ms, max 71 ms (normal); hook callback mean 1.7 us, max 9.2 us.
+
+**Not covered:** real apps (Chromium panes and documents, tab items, taskbar buttons; see the known gap in docs/04 section 2), middle clicks, unnamed controls other than the window, multiple monitors and other scaling.
+
+## 2026-11-08: live test of the real app, 21 of 22 pass
+
+Release exe built with `--features custom-protocol`, including the window-title fix. Owner's desktop with their agreement, one monitor, keystroke capture off. The harness (`.claude/skills/capture-selftest/scripts/live-app-test.ps1`) clicked the app's buttons inside the page through a local WebView2 debugging port. It sent real clicks only to its own small test window, and shortcut keys only when BabelSteps held them. Settings were backed up and restored, and the test recording was deleted without viewing its images. The first attempt stopped at a harness bug before recording anything; the second run is reported here.
+
+| Check | Result |
+| --- | --- |
+| Settings: keep 2 screenshots, start on Ctrl+Alt+Shift+F9; saved to disk | Pass |
+| The new start shortcut is held at once; the old one is released | Pass (checked by trying to register each) |
+| Create a recording; record dialog has keystrokes off; start from the UI | Pass |
+| Pause button and pause shortcut pause and resume; clicks while paused not recorded | Pass (5 steps for 4 unpaused clicks + 1 note) |
+| Note from the panel becomes a step; note shortcut focuses the note box | Pass |
+| Stop button stops and returns to the editor | Pass |
+| Retention notice after the stop | **Fail in the harness:** checked immediately, while the screen updates its status only every 1.5 s. Retention itself worked (2 of 6 steps kept images). Since fixed: the screen now refreshes when a stop finishes. Not yet confirmed live |
+| Remapped shortcut starts a recording; stop-now shortcut stops it | Pass |
+| Reset shortcuts: defaults held again, F9 released | Pass |
+| On disk: 6 steps, 2 images, 0 unreferenced, 0 missing; the test window's title in no step | Pass |
+| Settings restored; nothing left running | Pass |
+
+**Measurements** (fast desktop PC, one monitor, debug port on; label: single samples):
+- Launch to the Library screen: 0.65 s (D3 target: under 1 s to the tray; this measures the window, not the tray).
+- Idle, window open, after 10 s: private memory 147 MB across 6 processes, of which the app process is 6 MB and WebView2 the rest; CPU 1.2% of one core. **D1 (under 50 MB idle) is not met with the window open.** Not measured: idle with the window closed to the tray.
+- Recording, no activity: private memory 345 MB in total, app process 151 MB (frame history on a 5120x1440 screen); CPU 0.6% of one core. D7 (under 250 MB) is met by the app process and not by the total.
+- Sockets while recording: none, except the test's own debugging listener.
+
+**Not tested:** stop from the tray menu (needs a real click on the taskbar), the size-warning notice, keystroke capture on, long sessions.
+
+## 2026-11-08: close to the tray (Q21), live test, 24 of 24 pass
+
+Run with the owner's OK on the release build, using `live-tray-test.ps1` in the capture-selftest skill. One monitor, Windows 11. Each timing is a single measurement.
+
+- With the window open and idle: 147 MB private memory across 6 processes (6 MB of that is the app process).
+- After closing to the tray and waiting 15 s: 6 MB private memory in 1 process, and 0.3% of one core. The WebView2 processes ended. **D1 is met in tray mode** (target: under 50 MB). The process held no network sockets.
+- Passed:
+  - The start shortcut began a new recording with the window closed.
+  - The note shortcut does nothing when no recording is running. During a recording it rebuilt the window with the cursor in the note box.
+  - Closing during a recording stopped and saved it. The clicks, the note and the images were on disk, with nothing orphaned and nothing missing.
+  - Stopping and starting again with the window closed made a new recording. This bug was found in review and fixed before this run.
+  - The stop-now shortcut worked in a rebuilt window.
+  - Choosing "Quit" again made closing end the app.
+- Hardening: right-clicking the start-up window and a rebuilt window opened no browser menu. As a control, the same check found the menu on our own test window. The window now reads its WebView2 settings back and closes itself if they did not apply.
+- The first run (22 of 23) saw one new window after right-clicking the rebuilt window. Its cause is unknown, because that run did not record window classes. The second run, after the fail-closed change, saw none.
+- Not tested:
+  - The tray menu's Show item and double-clicking the tray icon, because both need real taskbar clicks. The menu now opens on right-click only.
+  - Windows sign-out or shutdown during a recording with the window closed.
+  - The fail-closed path itself (it never triggered).
+- After this run, the privacy audit found that the refused window could be shown again while its error message was open, and that the window appeared before its hardening was confirmed. Both are fixed: the window is now built hidden and shown only once the hardening is confirmed, and a timeout reports a hardening step that never runs. The audit passed after the fix. **The window-showing change has not been live-tested.** The 24 of 24 run used the build before it. A later finding is noted but not fixed: a late "window destroyed" event can stop Show from bringing an already-open window to the front. It cannot show an unhardened window.
+- Quick follow-up (2026-11-08, with the owner's OK, no recording made): on the hidden-until-hardened build, the window appeared 0.66 s after launch, the Library screen loaded at 0.81 s, right-clicking opened no browser menu, and closing quit the app (default setting). 4 of 4.

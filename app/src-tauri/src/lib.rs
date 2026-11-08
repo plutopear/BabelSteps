@@ -35,17 +35,28 @@ pub fn run() {
             recording::resume_recording,
             recording::add_comment,
             recording::stop_recording,
+            recording::clear_notice,
+            recording::get_settings,
+            recording::save_settings,
         ])
         .on_window_event(|window, event| {
-            // Closing the window while recording stops and saves first.
-            // If that fails, keep the window open and say so instead of closing silently.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Closing the window while recording stops and saves first, in
+                // both close modes. If that fails, keep the window open and say
+                // so instead of closing silently. With "keep running in the tray"
+                // the window is still destroyed, to free the WebView2 engine; the
+                // exit that follows is refused in `run` below.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     if let Err(e) = recording::stop_if_recording(window.app_handle()) {
                         api.prevent_close();
                         recording::report_stop_failure(window.app_handle(), &e);
                     }
                 }
+                tauri::WindowEvent::Destroyed => recording::main_window_destroyed(window.app_handle()),
+                _ => {}
             }
         })
         .setup(|app| {
@@ -63,18 +74,8 @@ pub fn run() {
                 return Ok(());
             }
 
-            let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("BabelSteps")
-                .inner_size(1100.0, 760.0)
-                .build()?;
-            #[cfg(windows)]
-            let _ = main.with_webview(|pv| unsafe {
-                if let Ok(core) = pv.controller().CoreWebView2() {
-                    pdf::windows::harden(&core);
-                }
-            });
-            #[cfg(not(windows))]
-            let _ = main;
+            build_main_window(app.handle(), false)?;
+            recording::load_settings(app.handle());
             recording::setup_hotkeys(app.handle());
             recording::setup_tray(app.handle())?;
             Ok(())
@@ -83,6 +84,14 @@ pub fn run() {
         .expect("failed to build the app");
 
     app.run(|handle, event| {
+        // The last window closed (no exit code): with "keep running in the
+        // tray", stay running. Quit from the tray menu passes a code and exits.
+        if let tauri::RunEvent::ExitRequested { api, code: None, .. } = &event {
+            if recording::stay_in_tray(handle) && handle.tray_by_id("babelsteps").is_some() {
+                api.prevent_exit();
+                return;
+            }
+        }
         // Quitting while recording stops and saves first.
         if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             if let Err(e) = recording::stop_if_recording(handle) {
@@ -100,4 +109,70 @@ pub fn run() {
         }
         let _ = event;
     });
+}
+
+/// The main window, with our own bundled page and the WebView2 hardening.
+/// Built at start-up and again from the tray after a close-to-tray.
+/// `for_note` opens it on the note box (the "Add a note" shortcut).
+pub(crate) fn build_main_window(app: &tauri::AppHandle, for_note: bool) -> tauri::Result<tauri::WebviewWindow> {
+    let page = if for_note { "index.html#note" } else { "index.html" };
+    recording::set_main_window_state(app, recording::MainWindow::Pending);
+    // Built hidden: it is shown only once the hardening is confirmed.
+    let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(page.into()))
+        .title("BabelSteps")
+        .inner_size(1100.0, 760.0)
+        .visible(cfg!(not(windows)))
+        .build()?;
+    // Fail closed: a window whose hardening (SmartScreen lookup off, no browser
+    // menus or devtools) cannot be confirmed is never shown, and the user is told.
+    #[cfg(windows)]
+    {
+        let w = main.clone();
+        let queued = main.with_webview(move |pv| {
+            let ok = unsafe { pv.controller().CoreWebView2() }.map(|core| pdf::windows::harden(&core)).unwrap_or(false);
+            if ok {
+                recording::set_main_window_state(w.app_handle(), recording::MainWindow::Ready);
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            } else {
+                refuse_unhardened(&w);
+            }
+        });
+        if queued.is_err() {
+            refuse_unhardened(&main);
+        } else {
+            // If the hardening step never runs, say so instead of staying hidden silently.
+            let w = main.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                if recording::main_window_pending(w.app_handle()) && w.app_handle().get_webview_window("main").is_some() {
+                    refuse_unhardened(&w);
+                }
+            });
+        }
+    }
+    #[cfg(not(windows))]
+    recording::set_main_window_state(app, recording::MainWindow::Ready);
+    Ok(main)
+}
+
+#[cfg(windows)]
+fn refuse_unhardened(w: &tauri::WebviewWindow) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    // Marked refused first, so Show, double-click and the note shortcut leave
+    // it hidden. It is destroyed only after the message is read, so that with
+    // "Quit" chosen the app does not exit before the user sees why.
+    recording::set_main_window_state(w.app_handle(), recording::MainWindow::Refused);
+    let _ = w.hide();
+    let w2 = w.clone();
+    w.app_handle()
+        .dialog()
+        .message("BabelSteps closed its window because it could not apply its privacy settings to the built-in browser. Quit BabelSteps and start it again.")
+        .title("Window closed")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| {
+            recording::note_window_refused(w2.app_handle());
+            let _ = w2.destroy();
+        });
 }

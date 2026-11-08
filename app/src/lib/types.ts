@@ -113,5 +113,16 @@ export interface RecordingStatus {
   warnings: string[];
   noteRequests: number;
   startRequests: number;
+  notice: string | null;
   hotkeys: HotkeyInfo[];
+}
+
+export interface Settings {
+  /** Keep screenshots for the newest N steps when a recording stops; null keeps all. */
+  keepScreenshots: number | null;
+  sizeWarningMb: number;
+  showCaptureBorder: boolean;
+  hotkeys: { startStop: string; pause: string; note: string; stop: string };
+  /** Closing the window keeps BabelSteps running in the tray (default false: closing quits). */
+  closeToTray: boolean;
 }

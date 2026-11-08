@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { api, describeError } from "./api";
   import { say } from "./announce.svelte";
-  import { rs } from "./recording.svelte";
+  import { openedForNote, rs } from "./recording.svelte";
   import type { OpenedRecording } from "./types";
 
   let { onstopped }: { onstopped: (o: OpenedRecording) => void } = $props();
@@ -20,6 +20,16 @@
     const n = st.noteRequests;
     if (n > seenNotes) {
       seenNotes = n;
+      say("Add a note: type your note and press Enter.");
+      tick().then(() => noteInput?.focus());
+    }
+  });
+
+  // The window was rebuilt from the tray by the "Add a note" shortcut, so the
+  // request above happened before this page existed.
+  $effect(() => {
+    if (openedForNote.pending) {
+      openedForNote.pending = false;
       say("Add a note: type your note and press Enter.");
       tick().then(() => noteInput?.focus());
     }

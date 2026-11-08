@@ -6,7 +6,7 @@ import type { RecordingStatus } from "./types";
 
 const IDLE: RecordingStatus = {
   active: false, paused: false, keystrokes: false, path: null, steps: 0,
-  withheld: 0, warnings: [], noteRequests: 0, startRequests: 0, hotkeys: [],
+  withheld: 0, warnings: [], noteRequests: 0, startRequests: 0, notice: null, hotkeys: [],
 };
 
 export const rs = $state({
@@ -16,6 +16,12 @@ export const rs = $state({
   /** Block ids shown in the editor right now, to find the steps a recording adds. */
   knownIds: [] as string[],
 });
+
+/** The window was rebuilt by the "Add a note" shortcut (page opened as #note).
+ *  Read once here and cleared at the first status poll, so it can only apply
+ *  to the recording that was running when the window opened. */
+export const openedForNote = { pending: location.hash === "#note" };
+if (openedForNote.pending) history.replaceState(null, "", location.pathname + location.search);
 
 export function statusLabel(s: RecordingStatus): string {
   if (!s.active) return "Not recording";
@@ -28,6 +34,7 @@ export async function refreshStatus(): Promise<RecordingStatus> {
     const s = await api.recordingStatus();
     const before = statusLabel(rs.status);
     rs.status = s;
+    if (!s.active) openedForNote.pending = false;
     const after = statusLabel(s);
     if (before !== after) say(after + ".");
   } catch {

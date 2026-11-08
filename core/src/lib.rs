@@ -10,6 +10,7 @@ pub mod model;
 pub mod normalize;
 pub mod password;
 pub mod pii;
+pub mod settings;
 pub mod storage;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;

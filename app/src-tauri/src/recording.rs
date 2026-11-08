@@ -7,8 +7,10 @@
 
 use crate::commands::{lock_current, AppState, OpenedRecording};
 use crate::error::{AppError, AppResult, ErrorKind};
+use babelsteps_core::settings::{HotkeySettings, Settings};
 use babelsteps_core::storage::Bundle;
 use babelsteps_windows::hotkeys::{self, Hotkey};
+use babelsteps_windows::indicator::Indicator;
 use babelsteps_windows::{Recorder, RecorderConfig};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -20,13 +22,19 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, State};
 
-/// Q14 defaults: Ctrl+Alt+Shift+R start/stop, P pause, N add note, X panic stop.
-const HOTKEYS: [(&str, char); 4] = [("Start or stop recording", 'R'), ("Pause or resume", 'P'), ("Add a note", 'N'), ("Stop now", 'X')];
+/// The four hotkeys from the settings (Q14 defaults: Ctrl+Alt+Shift+R/P/N/X), in action order.
+fn current_hotkeys(app: &AppHandle) -> [babelsteps_core::settings::HotkeySpec; 4] {
+    let settings = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    settings.hotkeys.parse().unwrap_or_else(|_| HotkeySettings::default().parse().expect("defaults are valid"))
+}
 
 pub struct Active {
     recorder: Recorder,
     path: PathBuf,
     keystrokes: bool,
+    /// C2 frame on each screen; None if hidden by setting or it could not be shown.
+    cue: Option<Indicator>,
+    cue_warning: Option<String>,
 }
 
 #[derive(Default)]
@@ -39,9 +47,49 @@ pub struct RecState {
     editor_unsaved: AtomicBool,
     start_requests: AtomicU64,
     hotkeys_ok: Mutex<Vec<bool>>,
+    /// Keeps the hotkey thread alive; replaced when the shortcuts change.
+    hotkey_handle: Mutex<Option<hotkeys::Hotkeys>>,
     tray: Mutex<Option<TrayIcon>>,
+    /// Loaded at start-up; changed by `save_settings`.
+    pub(crate) settings: Mutex<Settings>,
+    /// Plain-language result of the last stop (screenshots removed, size
+    /// warning), shown until the user dismisses it.
+    notice: Mutex<Option<String>>,
     /// Where the tray icon is, so the recorder ignores clicks on it.
     tray_area: Arc<Mutex<Vec<babelsteps_core::Rect>>>,
+    /// Held while the window is rebuilt from the tray.
+    window_build: Mutex<()>,
+    /// Set just before we destroy a window whose hardening failed.
+    window_refused: AtomicBool,
+    /// `MainWindow` as a number: whether the main window may be shown.
+    main_state: std::sync::atomic::AtomicU8,
+}
+
+/// Whether the main window's WebView2 hardening is confirmed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MainWindow {
+    /// Being built (or none): not shown yet.
+    Pending = 0,
+    /// Hardening confirmed: may be shown.
+    Ready = 1,
+    /// Hardening failed: stays hidden until destroyed.
+    Refused = 2,
+}
+
+pub fn set_main_window_state(app: &AppHandle, s: MainWindow) {
+    app.state::<RecState>().main_state.store(s as u8, Ordering::Relaxed);
+}
+
+pub fn main_window_pending(app: &AppHandle) -> bool {
+    main_window_state(app) == MainWindow::Pending
+}
+
+fn main_window_state(app: &AppHandle) -> MainWindow {
+    match app.state::<RecState>().main_state.load(Ordering::Relaxed) {
+        1 => MainWindow::Ready,
+        2 => MainWindow::Refused,
+        _ => MainWindow::Pending,
+    }
 }
 
 fn lock_active(state: &RecState) -> std::sync::MutexGuard<'_, Option<Active>> {
@@ -78,18 +126,19 @@ pub struct RecordingStatus {
     pub warnings: Vec<String>,
     pub note_requests: u64,
     pub start_requests: u64,
+    pub notice: Option<String>,
     pub hotkeys: Vec<HotkeyInfo>,
 }
 
 fn status_of(app: &AppHandle) -> RecordingStatus {
     let rs = app.state::<RecState>();
     let ok = rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let hotkeys = HOTKEYS
+    let hotkeys = current_hotkeys(app)
         .iter()
         .enumerate()
-        .map(|(i, (action, key))| HotkeyInfo {
-            action: action.to_string(),
-            keys: format!("Ctrl+Alt+Shift+{key}"),
+        .map(|(i, spec)| HotkeyInfo {
+            action: HotkeySettings::ACTIONS[i].to_string(),
+            keys: spec.label(),
             registered: ok.get(i).copied().unwrap_or(false),
         })
         .collect();
@@ -104,6 +153,7 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         warnings: Vec::new(),
         note_requests: rs.note_requests.load(Ordering::Relaxed),
         start_requests: rs.start_requests.load(Ordering::Relaxed),
+        notice: rs.notice.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         hotkeys,
     };
     if let Some(a) = guard.as_ref() {
@@ -115,6 +165,7 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         st.steps = s.steps;
         st.withheld = s.withheld;
         st.warnings = s.warnings;
+        st.warnings.extend(a.cue_warning.clone());
     }
     st
 }
@@ -140,7 +191,8 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
             return Err(e.into());
         }
     };
-    let ignore_keys = HOTKEYS.iter().map(|(_, k)| Hotkey::ctrl_alt_shift(*k)).collect();
+    let show_border = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).show_capture_border;
+    let ignore_keys = current_hotkeys(app).iter().map(Hotkey::from_spec).collect();
     let config = RecorderConfig {
         keystrokes_enabled: keystrokes,
         ignore_keys,
@@ -152,7 +204,15 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
     };
     match Recorder::start(bundle, recording, config) {
         Ok(recorder) => {
-            *active = Some(Active { recorder, path, keystrokes });
+            let (cue, cue_warning) = if show_border {
+                match Indicator::start() {
+                    Ok(c) => (Some(c), None),
+                    Err(e) => (None, Some(format!("The recording frame around the screen is not shown: {e}."))),
+                }
+            } else {
+                (None, None)
+            };
+            *active = Some(Active { recorder, path, keystrokes, cue, cue_warning });
             Ok(())
         }
         Err(e) => {
@@ -168,7 +228,7 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     let taken = lock_active(&app.state::<RecState>()).take();
     let Some(a) = taken else { return Err(AppError::new(ErrorKind::InvalidArgument, "no recording is running")) };
     let path = a.path.clone();
-    let reopen = |app: &AppHandle| *lock_current(&app.state::<AppState>()) = Bundle::open(&path).ok();
+    let reopen = |app: &AppHandle| keep_current(app, Bundle::open(&path).ok());
     let bundle = match a.recorder.stop() {
         Ok((bundle, _report)) => bundle,
         Err(e) => {
@@ -177,16 +237,66 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
             return Err(AppError::new(ErrorKind::Storage, format!("recording did not stop cleanly: {e}")));
         }
     };
-    let recording = match bundle.load() {
+    let mut recording = match bundle.load() {
         Ok(r) => r,
         Err(e) => {
-            *lock_current(&app.state::<AppState>()) = Some(bundle);
+            keep_current(app, Some(bundle));
             return Err(e.into());
         }
     };
+    let settings = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let notice = apply_retention(&bundle, &mut recording, &settings);
+    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = notice;
     let path = bundle.path().to_string_lossy().into_owned();
-    *lock_current(&app.state::<AppState>()) = Some(bundle);
+    keep_current(app, Some(bundle));
     Ok(OpenedRecording { path, recording })
+}
+
+/// After a stop, the stopped recording stays open for the editor. With no
+/// window (closed to the tray) there is no editor to show it, so it is closed:
+/// the next start shortcut then makes a new recording instead of adding steps
+/// to one the user cannot see.
+fn keep_current(app: &AppHandle, bundle: Option<Bundle>) {
+    let window = app.get_webview_window("main").is_some() && main_window_state(app) != MainWindow::Refused;
+    *lock_current(&app.state::<AppState>()) = if window { bundle } else { None };
+}
+
+/// A8: keep screenshots for the newest N steps only. The document is saved
+/// first and files are deleted after, so a failure never leaves a step that
+/// points at a missing picture. Returns a notice for the user, if any.
+fn apply_retention(bundle: &Bundle, recording: &mut babelsteps_core::model::Recording, settings: &Settings) -> Option<String> {
+    let Some(keep) = settings.keep_screenshots else {
+        // Unlimited (Q12): warn when the pictures take a lot of space.
+        let mb = dir_size(&bundle.images_dir()) / (1024 * 1024);
+        return (mb >= u64::from(settings.size_warning_mb)).then(|| {
+            format!(
+                "This recording's screenshots take about {mb} MB. In Settings you can keep screenshots for only the newest steps."
+            )
+        });
+    };
+    let out = match bundle.apply_retention(recording, keep as usize) {
+        Ok(o) => o,
+        Err(_) => return Some("The limit on kept screenshots could not be applied because the recording could not be saved. Nothing was removed.".into()),
+    };
+    if out.removed == 0 {
+        return None;
+    }
+    let (removed, failed) = (out.removed, out.failed);
+    let mut msg = format!(
+        "Kept screenshots for the newest {keep} steps. Removed the screenshots of {} older {}.",
+        removed,
+        if removed == 1 { "step" } else { "steps" }
+    );
+    if failed > 0 {
+        msg.push_str(&format!(" {failed} picture file(s) could not be deleted and remain in the recording folder."));
+    }
+    Some(msg)
+}
+
+fn dir_size(dir: &std::path::Path) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum())
+        .unwrap_or(0)
 }
 
 fn with_active(app: &AppHandle, f: impl FnOnce(&Recorder)) -> AppResult<()> {
@@ -202,11 +312,78 @@ fn toggle_pause(app: &AppHandle) {
 }
 
 fn show_main(app: &AppHandle) {
+    show_main_for(app, false);
+}
+
+/// Bring the window back. With "keep running in the tray" the window is
+/// destroyed on close (that frees the WebView2 browser engine, most of the
+/// idle memory), so build a new one. `for_note` opens it with the note box focused.
+fn show_main_for(app: &AppHandle, for_note: bool) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        // Only a window whose hardening is confirmed may be shown. A pending
+        // one shows itself when ready; a refused one stays hidden until destroyed.
+        if main_window_state(app) == MainWindow::Ready {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+        return;
     }
+    // Build off the calling thread: this runs from tray-menu handlers on the
+    // event-loop thread, where building a WebView2 window can deadlock.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let rs = app.state::<RecState>();
+        // One rebuild at a time, so two quick clicks do not race for the label.
+        let _one = rs.window_build.lock().unwrap_or_else(|e| e.into_inner());
+        if app.get_webview_window("main").is_some() {
+            return;
+        }
+        // On success the window shows and focuses itself once hardened.
+        match crate::build_main_window(&app, for_note) {
+            Ok(_) => {}
+            Err(e) => {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                app.dialog()
+                    .message(format!("BabelSteps could not open its window. Quit it from the tray menu and start it again.\n\n{e}"))
+                    .title("Window did not open")
+                    .kind(MessageDialogKind::Error)
+                    .show(|_| {});
+            }
+        }
+    });
+}
+
+/// Called when the main window is gone. Its editor can no longer save first,
+/// and the recording it had open is closed, so a start shortcut pressed later
+/// (window closed to the tray) makes a new recording instead of adding steps
+/// to a document the user can no longer see. A rebuilt window opens on the library.
+pub fn main_window_destroyed(app: &AppHandle) {
+    set_main_window_state(app, MainWindow::Pending);
+    let rs = app.state::<RecState>();
+    rs.editor_unsaved.store(false, Ordering::Relaxed);
+    let active = lock_active(&rs);
+    if active.is_none() {
+        *crate::commands::lock_current(&app.state::<crate::commands::AppState>()) = None;
+    }
+}
+
+/// Whether an exit with no code (the last window closed) should be refused so
+/// the app stays in the tray. Closing the window stops any recording first, so
+/// a recording still running here means Windows itself is ending the app (sign
+/// out, shut down): then exit, which stops and saves.
+pub fn stay_in_tray(app: &AppHandle) -> bool {
+    let rs = app.state::<RecState>();
+    let on = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).close_to_tray;
+    // A window we closed ourselves (hardening refused) is not Windows ending
+    // the app, so a running recording keeps going in the tray.
+    let refused = rs.window_refused.swap(false, Ordering::Relaxed);
+    on && (refused || !is_recording(app))
+}
+
+/// Marks the next last-window exit as caused by our own refusal of a window.
+pub fn note_window_refused(app: &AppHandle) {
+    app.state::<RecState>().window_refused.store(true, Ordering::Relaxed);
 }
 
 /// Stop if recording. Used before the window closes or the app quits.
@@ -232,7 +409,23 @@ pub fn report_stop_failure(app: &AppHandle, err: &AppError) {
         .show(|_| {});
 }
 
+/// Stop if recording; on failure tell the user. True when nothing is left running.
+pub fn stop_and_report(app: &AppHandle) -> bool {
+    match stop_if_recording(app) {
+        Ok(()) => true,
+        Err(e) => {
+            report_stop_failure(app, &e);
+            false
+        }
+    }
+}
+
 // ---- commands ----------------------------------------------------------------
+
+#[tauri::command]
+pub fn clear_notice(app: AppHandle) {
+    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
 
 #[tauri::command]
 pub fn recording_status(app: AppHandle) -> RecordingStatus {
@@ -279,16 +472,23 @@ pub async fn stop_recording(app: AppHandle) -> AppResult<OpenedRecording> {
 
 // ---- hotkeys and tray ----------------------------------------------------------
 
-/// Register the global hotkeys and act on them for the life of the app.
+/// Register the global hotkeys from the settings and act on them. Called at
+/// start-up and again when the shortcuts change; the old registration ends first.
 pub fn setup_hotkeys(app: &AppHandle) {
-    let keys: Vec<Hotkey> = HOTKEYS.iter().map(|(_, k)| Hotkey::ctrl_alt_shift(*k)).collect();
-    let Ok((handle, pressed, ok)) = hotkeys::register(&keys) else { return };
-    *app.state::<RecState>().hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = ok;
+    let rs = app.state::<RecState>();
+    // Dropping the old handle unregisters its keys and ends its action thread.
+    drop(rs.hotkey_handle.lock().unwrap_or_else(|e| e.into_inner()).take());
+    let keys: Vec<Hotkey> = current_hotkeys(app).iter().map(Hotkey::from_spec).collect();
+    let Ok((handle, pressed, ok)) = hotkeys::register(&keys) else {
+        *rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = Vec::new();
+        return;
+    };
+    *rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = ok;
+    *rs.hotkey_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
     let app = app.clone();
     std::thread::Builder::new()
         .name("hotkey-actions".into())
         .spawn(move || {
-            let _keep = handle; // Unregistered when this thread ends with the app.
             for index in pressed {
                 match index {
                     0 => {
@@ -306,10 +506,12 @@ pub fn setup_hotkeys(app: &AppHandle) {
                     2 => {
                         if is_recording(&app) {
                             app.state::<RecState>().note_requests.fetch_add(1, Ordering::Relaxed);
-                            show_main(&app);
+                            show_main_for(&app, true);
                         }
                     }
-                    3 => stop_if_recording(&app),
+                    3 => {
+                        stop_and_report(&app);
+                    }
                     _ => {}
                 }
             }
@@ -366,15 +568,28 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .icon(dot([128, 128, 128]))
         .tooltip("BabelSteps: not recording")
         .menu(&menu)
+        // Right-click opens the menu; double-click opens the window. A menu on
+        // left-click would swallow the double-click.
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main(app),
             "pause" => toggle_pause(app),
-            "stop" => stop_if_recording(app),
+            "stop" => {
+                stop_and_report(app);
+            }
             "quit" => {
-                stop_if_recording(app);
-                app.exit(0);
+                // A failed save keeps the app open and says so.
+                if stop_and_report(app) {
+                    app.exit(0);
+                }
             }
             _ => {}
+        })
+        // Double-click the icon to bring the window back (after a close to the tray).
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::DoubleClick { button: tauri::tray::MouseButton::Left, .. } = event {
+                show_main(tray.app_handle());
+            }
         })
         .build(app)?;
     *app.state::<RecState>().tray.lock().unwrap_or_else(|e| e.into_inner()) = Some(tray);
@@ -398,6 +613,11 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     continue;
                 }
                 last = Some(look);
+                if let Some(a) = lock_active(&app.state::<RecState>()).as_ref() {
+                    if let Some(c) = &a.cue {
+                        c.set_paused(matches!(look, TrayLook::Paused { .. }));
+                    }
+                }
                 let (icon, tip) = match look {
                     TrayLook::Idle => (dot([128, 128, 128]), "BabelSteps: not recording".to_string()),
                     TrayLook::Paused { keystrokes } => (
@@ -427,4 +647,69 @@ pub fn ensure_idle(rec: &State<'_, RecState>) -> AppResult<()> {
         return Err(busy_error());
     }
     Ok(())
+}
+
+// ---- settings ------------------------------------------------------------------
+
+fn settings_path(app: &AppHandle) -> AppResult<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::new(ErrorKind::Storage, format!("no app data folder: {e}")))?;
+    Ok(dir.join("settings.json"))
+}
+
+/// Read the settings file at start-up. A missing or damaged file gives the defaults.
+pub fn load_settings(app: &AppHandle) {
+    if let Ok(p) = settings_path(app) {
+        *app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()) = Settings::load(&p);
+    }
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> Settings {
+    app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Saves and applies. Returns warnings to show: shortcuts another app already
+/// uses, and shortcuts likely to clash with other programs.
+#[tauri::command]
+pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<Vec<String>> {
+    settings.validate().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
+    let mut settings = settings;
+    let hotkeys_changed;
+    settings.hotkeys = settings.hotkeys.normalized().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
+    let rs = app.state::<RecState>();
+    let path = settings_path(&app)?;
+    {
+        // `start` holds this lock while it reads the shortcuts, so a recording
+        // cannot begin between the check and the change.
+        let active = lock_active(&rs);
+        let old = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        hotkeys_changed = old.hotkeys != settings.hotkeys;
+        // The running recorder ignores the old shortcuts; change them between recordings.
+        if active.is_some() && hotkeys_changed {
+            return Err(busy_error());
+        }
+        settings.save(&path).map_err(|e| AppError::new(ErrorKind::Storage, format!("settings were not saved: {e}")))?;
+        *rs.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    }
+    if hotkeys_changed {
+        setup_hotkeys(&app);
+    }
+    Ok(hotkey_warnings(&app))
+}
+
+fn hotkey_warnings(app: &AppHandle) -> Vec<String> {
+    let ok = app.state::<RecState>().hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut out = Vec::new();
+    for (i, spec) in current_hotkeys(app).iter().enumerate() {
+        let action = HotkeySettings::ACTIONS[i];
+        if !ok.get(i).copied().unwrap_or(false) {
+            out.push(format!("{} for \"{action}\" is already used by Windows or another app, so it will not work. Pick another shortcut.", spec.label()));
+        } else if spec.is_weak() {
+            out.push(format!("{} for \"{action}\" has fewer than three modifier keys and may clash with browsers or other apps.", spec.label()));
+        }
+    }
+    out
 }

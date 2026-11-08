@@ -19,6 +19,7 @@ Privacy is a core product promise, not a feature. These guarantees are checked i
 | **Password fields** | Password field text is never stored, and the step reads "Enter password in *field name*" with no value. No single signal is trusted: in M0, Edge's first lookup at a password field wrongly said it was not one. A field counts as a password if the element reports `IsPassword`, the point is inside a field found by the window scan, or the focused element reports it at keystroke time. If the check fails or cannot finish, typed text is dropped and the step's screenshot is withheld, with the step marked "Screenshot withheld: could not check for passwords." A missing image is recoverable; a leaked password is not. Fields that report none of these (some custom controls) are a known gap; we document it. |
 | **Secrets typed elsewhere** | Typed text is shown in the document. Users can delete or redact steps before export. Recording with a visible warning reduces accidents. |
 | **Screenshots of sensitive content** | Manual blur or black-out tools (B7) and automatic redaction (B12–B14, section 3). Turning keystroke capture off does not hide typed text that is visible on screen, so the UI must not imply that it does. |
+| **Window titles in element names** | A click on empty window space, a title bar, a web page background or a tab hits an element named after the window, page or file title. Since 2026-11-08 the core drops the names of window, title bar, document, pane and tab item elements before anything is saved (unit tested, and checked live on our own test window on 2026-11-08). Known gap: taskbar and task-switcher buttons and the caption text in newer title bars are also named after the window title and are not caught. |
 | **Clipboard** | Not captured in v1 (non-goal). |
 | **Pause and panic stop** | A global pause hotkey and a panic-stop hotkey work even when the app window is hidden. |
 | **Recording indicator** | Always visible in the tray and on the capture target. Can be hidden only in a clearly labeled setting. |
@@ -61,3 +62,14 @@ Encryption at rest is **dropped** (not planned). Instead, the app limits how muc
 ## 6. Antivirus and keyboard hooks
 
 Low-level keyboard hooks are the same mechanism some keyloggers use, so antivirus heuristics may flag the app. Mitigations: code signing, documentation of the hook use, submitting builds to vendor false-positive programs, and keeping the hook callback minimal and transparent.
+
+## 7. Native app, no server (decided 2026-11-08)
+
+BabelSteps is one native program. It runs no web server and no client/server pair, and it opens no network connection. The window shows the built-in frontend through Tauri's own `custom-protocol`, which is an in-process handler, not a TCP port.
+
+Development vs release: during development (`npm run tauri dev`) the window may load the Vite dev server on localhost:1420; that is a development tool on the developer's machine and never ships. Every release build must be self-contained, and the guards below enforce that.
+
+Guards:
+- `build.rs` in `app/src-tauri` refuses a release build that does not embed the frontend. A plain `cargo build --release` would point the window at the development server (`localhost:1420`) and show "localhost refused to connect". Build the app with `cargo build --release -p babelsteps-app --features custom-protocol` (the executable is then under that target folder's `release`).
+- `.claude/skills/babelsteps-check/scripts/no-network.ps1`, run by the `babelsteps-check` skill, fails if the dependency tree for Windows, macOS or Linux contains hyper, reqwest, mio, socket2, h2, a TLS or HTTP client crate, or a Tauri http, shell, opener, updater or websocket plugin; if tokio has its `net` feature on; if a capability grants more than the folder and save pickers; or if the config opens a remote URL. Checked 2026-11-08: passes (322 crates). Tauri itself pulls in reqwest only for Android and iOS, which we do not build, so those targets are not checked.
+- Checked 2026-11-08 on a running, idle release app (one snapshot, `research/m1-results.md`): no BabelSteps or WebView2 process held a TCP or UDP socket, other than the test's own local debugging port. Checked again 2026-11-08 during a recording: none. Not yet checked: during an export, and which local pipes WebView2 uses.

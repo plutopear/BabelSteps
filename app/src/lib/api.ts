@@ -6,6 +6,7 @@ import type {
   LibraryListing,
   OpenedRecording,
   Recording,
+  Settings,
   RecordingStatus,
 } from "./types";
 
@@ -90,6 +91,10 @@ export const api = {
   resumeRecording: () => call<void>("resume_recording"),
   addComment: (text: string) => call<void>("add_comment", { text }),
   stopRecording: () => call<OpenedRecording>("stop_recording"),
+  clearNotice: () => call<void>("clear_notice"),
+  getSettings: () => call<Settings>("get_settings"),
+  /** Saves and applies; returns warnings about shortcuts that clash. */
+  saveSettings: (settings: Settings) => call<string[]>("save_settings", { settings }),
 };
 
 // File pickers go through the dialog plugin's commands (already allowed:
