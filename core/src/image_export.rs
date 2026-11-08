@@ -6,7 +6,7 @@
 //! output holds only IHDR, IDAT and IEND chunks, JPEG output only the JFIF
 //! header, tables and image data.
 //!
-//! With `max_width`, wider images are scaled down after the boxes are painted,
+//! With a [`Shrink`], wider images are scaled down after the boxes are painted,
 //! so scaling only ever blends black into the edges, never hidden pixels.
 
 use crate::export::ExportError;
@@ -14,14 +14,23 @@ use crate::model::Rect;
 use crate::screenshot::{self, Effort};
 use image::imageops::{resize, FilterType};
 
-/// Width for printed (HTML and PDF) images. Letter pages print about 7.5 inches
-/// wide, so this is over 200 dpi; full-size ultrawide shots made printing slow.
-/// Lowered from 2000 on 2026-11-08 (PSR-1): WebView2 re-compresses PDF images
-/// itself, so pixel count is what sets the PDF size, and 2000 px gave about
-/// 11 MB per 30 real steps against the 10 MB target.
-pub const PRINT_MAX_WIDTH: u32 = 1600;
+/// When an image is scaled down: only if wider than `above`, and then to `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shrink {
+    pub above: u32,
+    pub to: u32,
+}
 
-pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
+/// Size of printed (HTML and PDF) images. WebView2 re-compresses every PDF
+/// image itself, so pixel count is what sets the PDF size (PSR-1, 2026-11-08).
+/// Wide shots (ultrawide, 2560 px and up) go to 1600 px, over 200 dpi across a
+/// Letter page: 2000 px gave about 11 MB per 30 real steps against the 10 MB
+/// target. Images up to 2000 px wide are printed at their own size, because a
+/// mild shrink (1920 to 1600) blurred sharp edges into in-between colours and
+/// made the PDF self-test's 1920x540 export 9 times larger (145 MB vs 16 MB).
+pub const PRINT_SHRINK: Shrink = Shrink { above: 2000, to: 1600 };
+
+pub fn prepare_image(src: &[u8], redactions: &[Rect], shrink: Option<Shrink>) -> Result<Vec<u8>, ExportError> {
     let (format, mut img) = screenshot::decode(src).map_err(ExportError::Image)?;
     let (width, height) = img.dimensions();
 
@@ -41,7 +50,7 @@ pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) ->
         }
     }
 
-    if let Some(max) = max_width.filter(|&m| m > 0 && width > m) {
+    if let Some(max) = shrink.filter(|s| s.to > 0 && width > s.above.max(s.to)).map(|s| s.to) {
         let h = ((u64::from(height) * u64::from(max) + u64::from(width) / 2) / u64::from(width)).max(1) as u32;
         img = resize(&img, max, h, FilterType::CatmullRom);
     }
@@ -51,7 +60,7 @@ pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) ->
     // (measured 2026-11-08: no JPEG survived into the PDF), so our compression
     // does not change the PDF size, only the export time (D5: 10 s per 100
     // steps). Markdown exports are kept as files, so they are compressed.
-    let effort = if max_width.is_some() { Effort::Hurry } else { Effort::Normal };
+    let effort = if shrink.is_some() { Effort::Hurry } else { Effort::Normal };
     screenshot::encode(format, img.as_raw(), width, height, effort).map_err(ExportError::Image)
 }
 
@@ -115,9 +124,9 @@ pub(crate) mod tests {
 
     #[test]
     fn wide_images_shrink_to_max_width_keeping_aspect() {
-        let out = decode(&prepare_image(&solid_png(500, 141, [7, 7, 7, 255]), &[], Some(100)).unwrap());
+        let out = decode(&prepare_image(&solid_png(500, 141, [7, 7, 7, 255]), &[], Some(Shrink { above: 100, to: 100 })).unwrap());
         assert_eq!(out.dimensions(), (100, 28));
-        let out = decode(&prepare_image(&solid_png(80, 30, [7, 7, 7, 255]), &[], Some(100)).unwrap());
+        let out = decode(&prepare_image(&solid_png(80, 30, [7, 7, 7, 255]), &[], Some(Shrink { above: 100, to: 100 })).unwrap());
         assert_eq!(out.dimensions(), (80, 30), "narrow images are never enlarged");
     }
 
@@ -134,7 +143,7 @@ pub(crate) mod tests {
         let mut png = Vec::new();
         PngEncoder::new(&mut png).write_image(src.as_raw(), 400, 100, image::ExtendedColorType::Rgba8).unwrap();
         let redact = [Rect { x: 101, y: 30, w: 102, h: 30 }];
-        let out = decode(&prepare_image(&png, &redact, Some(150)).unwrap());
+        let out = decode(&prepare_image(&png, &redact, Some(Shrink { above: 150, to: 150 })).unwrap());
         assert_eq!(out.width(), 150);
         let mut saw_black = false;
         for p in out.pixels() {
@@ -144,7 +153,7 @@ pub(crate) mod tests {
         }
         assert!(saw_black, "the redaction box must survive scaling");
         // The check can fail: without the redaction the red shows through.
-        let leaked = decode(&prepare_image(&png, &[], Some(150)).unwrap());
+        let leaked = decode(&prepare_image(&png, &[], Some(Shrink { above: 150, to: 150 })).unwrap());
         assert!(leaked.pixels().any(|p| u16::from(p.0[0]) > u16::from(p.0[1]) + 50));
     }
 
@@ -186,7 +195,7 @@ pub(crate) mod tests {
     #[test]
     fn jpeg_shrinks_for_print_like_png() {
         let src = jpeg_with_exif(500, 141, [7, 7, 7]);
-        let out = prepare_image(&src, &[], Some(100)).unwrap();
+        let out = prepare_image(&src, &[], Some(Shrink { above: 100, to: 100 })).unwrap();
         let img = image::load_from_memory_with_format(&out, ImageFormat::Jpeg).unwrap();
         assert_eq!((img.width(), img.height()), (100, 28));
     }
@@ -198,5 +207,14 @@ pub(crate) mod tests {
         let (_, ihdr) = png_chunks(&out).into_iter().next().unwrap();
         assert_eq!(ihdr[9], 2, "colour type 2 (RGB)");
         assert!(out.len() < 2000, "a flat 300x200 image compresses well: {} bytes", out.len());
+    }
+
+    #[test]
+    fn print_shrink_leaves_images_up_to_the_limit_alone() {
+        let w = |src_w: u32| decode(&prepare_image(&solid_png(src_w, 20, [7, 7, 7, 255]), &[], Some(PRINT_SHRINK)).unwrap()).width();
+        assert_eq!(w(1920), 1920, "1080p screens are not resampled");
+        assert_eq!(w(2000), 2000);
+        assert_eq!(w(2001), 1600);
+        assert_eq!(w(5120), 1600);
     }
 }

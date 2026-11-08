@@ -228,3 +228,9 @@ The release app was built from commit d8081ca and run on the owner's PC with the
 - PDF (the app's export command): 2.94 MB for 3 pages, exported in 0.59 s. With header and footer: 2.96 MB in 0.60 s. 8 images, none JPEG.
 - Markdown: 5.25 MB folder, 0.11 s.
 - Estimated from these 8 steps, not measured: about 0.37 MB of PDF per step. That makes **about 11 MB for 30 steps**, just over the 10 MB target, and about 37 MB for 100 steps (the self-test's patterned images give 225.6 MB). A recording of 30 steps would be about 20 MB on disk. Busier screens will be larger.
+
+## 2026-11-08: 1600 px print images (PSR-1, owner's choice)
+
+PDF self-test on the owner's PC: release build, 24 logical CPUs, PC in normal use, patterned images, one run. Commit 9ca2bd7 shrinks every print image wider than 1600 px. All checks passed. The 100-step 5120x1440 PDF went from 225.6 MB to 54.0 MB, and from 8.7-9.4 s to 5.5 s (D5 met). Redaction held in all 100 images.
+
+The same run's 1920x540 export grew from 16.1 MB to 145.3 MB, and from about 3.0 s to 5.0 s. A mild shrink blurs sharp edges into in-between colours, which WebView2's compression handles badly. So only images wider than 2000 px are now shrunk to 1600 px; narrower ones keep their size, as before. **Not yet re-run on that change.**

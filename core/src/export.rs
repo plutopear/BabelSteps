@@ -7,7 +7,7 @@
 //! half-finished folder behind (apart from an empty output folder).
 
 use crate::html::to_html;
-use crate::image_export::{prepare_image, PRINT_MAX_WIDTH};
+use crate::image_export::{prepare_image, Shrink, PRINT_SHRINK};
 use crate::markdown::to_markdown;
 use crate::model::{Block, Recording, Rect};
 use crate::storage::is_reserved_device_name;
@@ -108,7 +108,7 @@ struct Prepared {
     report: ExportReport,
 }
 
-fn prepare_all(rec: &Recording, source_dir: &Path, max_width: Option<u32>) -> Result<Prepared, ExportError> {
+fn prepare_all(rec: &Recording, source_dir: &Path, shrink: Option<Shrink>) -> Result<Prepared, ExportError> {
     let root = std::fs::canonicalize(source_dir).map_err(|e| ExportError::Io(format!("recording folder: {e}")))?;
     let mut report = ExportReport::default();
     let mut jobs: Vec<Job> = Vec::new();
@@ -164,7 +164,7 @@ fn prepare_all(rec: &Recording, source_dir: &Path, max_width: Option<u32>) -> Re
     }
 
     let mut files = Vec::with_capacity(jobs.len());
-    for (job, prepared) in jobs.iter().zip(prepare_parallel(&jobs, max_width)) {
+    for (job, prepared) in jobs.iter().zip(prepare_parallel(&jobs, shrink)) {
         files.push((job.path.clone(), prepared?));
     }
     report.images_written = files.len();
@@ -179,7 +179,7 @@ struct Job {
     redactions: Vec<Rect>,
 }
 
-fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
+fn prepare_one(job: &Job, shrink: Option<Shrink>) -> Result<Vec<u8>, ExportError> {
     let owner = &job.owner;
     let bytes = std::fs::read(&job.full).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -188,7 +188,7 @@ fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError
             ExportError::Io(format!("{owner}: {e}"))
         }
     })?;
-    prepare_image(&bytes, &job.redactions, max_width).map_err(|e| match e {
+    prepare_image(&bytes, &job.redactions, shrink).map_err(|e| match e {
         ExportError::Image(m) => ExportError::Image(format!("{owner}: {m}")),
         other => other,
     })
@@ -198,12 +198,12 @@ fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError
 /// so images are prepared on a few threads. Capped at 8: each one holds a
 /// decoded full-size image (about 30 MB at 5120x1440). Results keep job order,
 /// so the first error reported is the first in the document.
-fn prepare_parallel(jobs: &[Job], max_width: Option<u32>) -> Vec<Result<Vec<u8>, ExportError>> {
+fn prepare_parallel(jobs: &[Job], shrink: Option<Shrink>) -> Vec<Result<Vec<u8>, ExportError>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8).min(jobs.len());
     if threads <= 1 {
-        return jobs.iter().map(|j| prepare_one(j, max_width)).collect();
+        return jobs.iter().map(|j| prepare_one(j, shrink)).collect();
     }
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<Result<Vec<u8>, ExportError>>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
@@ -212,7 +212,7 @@ fn prepare_parallel(jobs: &[Job], max_width: Option<u32>) -> Vec<Result<Vec<u8>,
             s.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(job) = jobs.get(i) else { break };
-                let r = prepare_one(job, max_width);
+                let r = prepare_one(job, shrink);
                 results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
             });
         }
@@ -260,10 +260,10 @@ pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Re
 
 /// Write `document.html` and `images/` into `out_dir`, ready for a webview to
 /// print (PDF) or to keep as an HTML export. Images wider than
-/// [`PRINT_MAX_WIDTH`] are scaled down; Markdown exports keep full size.
+/// [`PRINT_SHRINK`]'s limit are scaled down; Markdown exports keep full size.
 pub fn prepare_html_export(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
-    let p = prepare_all(rec, source_dir, Some(PRINT_MAX_WIDTH))?;
+    let p = prepare_all(rec, source_dir, Some(PRINT_SHRINK))?;
     write_bundle(out_dir, "document.html", &to_html(rec), &p.files)?;
     Ok(p.report)
 }
@@ -358,15 +358,15 @@ mod tests {
     #[test]
     fn wide_images_shrink_for_html_but_not_markdown() {
         let src = TempDir::new("src");
-        let rec = generate_bundle(src.path(), 1, PRINT_MAX_WIDTH + 400, 10);
+        let rec = generate_bundle(src.path(), 1, PRINT_SHRINK.above + 400, 10);
         let Block::Step(s) = &rec.blocks[0] else { panic!("expected a step") };
         let shot = s.screenshot.clone().unwrap();
         let width = |dir: &Path| image::image_dimensions(dir.join(&shot)).unwrap().0;
         let (md, html) = (TempDir::new("md"), TempDir::new("html"));
         export_markdown(&rec, src.path(), md.path()).unwrap();
         prepare_html_export(&rec, src.path(), html.path()).unwrap();
-        assert_eq!(width(md.path()), PRINT_MAX_WIDTH + 400);
-        assert_eq!(width(html.path()), PRINT_MAX_WIDTH);
+        assert_eq!(width(md.path()), PRINT_SHRINK.above + 400);
+        assert_eq!(width(html.path()), PRINT_SHRINK.to);
     }
 
     #[test]
