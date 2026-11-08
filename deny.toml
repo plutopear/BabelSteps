@@ -1,0 +1,82 @@
+# cargo-deny: security and supply-chain checks for the Rust dependencies.
+# Run by .github/workflows/security.yml; locally: `cargo deny check`.
+
+[graph]
+# Desktop targets only. Tauri pulls in networking crates for Android and iOS,
+# which this product does not build.
+targets = [
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+# Known vulnerabilities (RustSec). Unmaintained crates are reported only when
+# we depend on them directly; deep Tauri dependencies are out of our hands.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+  # lopdf is only in the `selftest` feature, never in a release build, and it
+  # parses only PDFs the self-test itself just printed. The fix (0.42) changes
+  # its API; Dependabot will offer the upgrade. Remove this line with it.
+  { id = "RUSTSEC-2026-0187", reason = "dev-only selftest dependency that parses only our own output" },
+]
+
+[licenses]
+# Permissive licences only, plus MPL-2.0 (file-level copyleft, used by
+# Tauri's CSS parser) which is compatible with an MIT/Apache app.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+  "Unlicense",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+# The privacy promise: no networking crates in a desktop build. This repeats
+# the no-network.ps1 check on a second runner and in a second tool.
+deny = [
+  { crate = "hyper" },
+  { crate = "hyper-util" },
+  { crate = "reqwest" },
+  { crate = "mio" },
+  { crate = "socket2" },
+  { crate = "h2" },
+  { crate = "ureq" },
+  { crate = "curl" },
+  { crate = "isahc" },
+  { crate = "rustls" },
+  { crate = "native-tls" },
+  { crate = "openssl" },
+  { crate = "tungstenite" },
+  { crate = "tokio-tungstenite" },
+  { crate = "surf" },
+  { crate = "attohttpc" },
+  { crate = "tauri-plugin-http" },
+  { crate = "tauri-plugin-shell" },
+  { crate = "tauri-plugin-opener" },
+  { crate = "tauri-plugin-updater" },
+  { crate = "tauri-plugin-websocket" },
+  { crate = "tauri-plugin-upload" },
+]
+
+[sources]
+# Crates come only from crates.io, never from a git repository or another registry.
+unknown-registry = "deny"
+unknown-git = "deny"

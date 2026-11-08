@@ -1,6 +1,6 @@
 # Privacy and Security
 
-Privacy is a core product promise, not a feature. These guarantees are to be checked in CI, and any violation blocks a release. As of 2026-11-08 there is no CI yet: the checks run only when the `babelsteps-check` skill is run. Automating them is an M3 exit criterion (`07-definition-of-done.md`, row 3.4).
+Privacy is a core product promise, not a feature. These guarantees are checked automatically, and any violation blocks a release. Section 8 lists what the automatic checks cover and what they cannot.
 
 ## 1. Guarantees
 
@@ -81,3 +81,34 @@ Guards:
 
   A WebView2 runtime too old to offer these settings therefore cannot open the window. Checked live 2026-11-08: right-clicking the start-up window and a window rebuilt from the tray opened no browser menu, and the same check on our own test window did find one (`research/m1-results.md`). The first page load still starts before the hardening is applied, but on a hidden window that shows only our bundled page.
 - Closing to the tray (Q21) destroys the window, so no WebView2 process runs while BabelSteps sits in the tray. Checked live 2026-11-08: one process, no sockets.
+
+## 8. How the privacy checks run (added 2026-11-08)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs these on every pull request and every push to `main`. The `babelsteps-check` skill runs the first three on the owner's PC.
+
+| Check | What it catches | Where |
+| --- | --- | --- |
+| Unit and golden-file tests | Exports that differ from the reviewed output, metadata left in images, withheld screenshots exported | `cargo test --workspace` (Windows) |
+| Source and config scans | Socket or HTTP APIs in Rust code (`TcpStream`, `UdpSocket`, WinSock, WinHTTP, `Windows.Web.Http`); `windows` crate networking features; `fetch`, `WebSocket` or any `http(s)://` address in the frontend; a content security policy that names any outside source; Tauri permissions beyond the folder and save pickers | `checks/tests/privacy.rs`, part of `cargo test` |
+| No-network dependency check | Networking crates, Tauri plugins that can reach the network, tokio's `net` feature, for Windows, macOS and Linux builds | `no-network.ps1` (Windows) |
+| Runtime socket test | Any network socket opened while the core tests build, save, reload, redact and export recordings | `scripts/ci/no-socket-at-runtime.sh` (Linux, under `strace`) |
+
+Every scan and the runtime test first prove they can fail: each scanner is tested on a planted leak, and the runtime test checks that it catches a program that opens a socket before it trusts a pass.
+
+Security and dependency checks (`.github/workflows/security.yml`, `codeql.yml`, `.github/dependabot.yml`, `deny.toml`):
+
+| Check | What it catches | When |
+| --- | --- | --- |
+| cargo-deny | Rust crates with published vulnerabilities, licences outside the allow list, banned networking crates (a second, independent no-network check), crates from anywhere but crates.io | Every pull request, push to `main`, and weekly |
+| npm audit | High or critical vulnerabilities in the frontend's packages | Same |
+| gitleaks | Passwords, tokens and keys committed anywhere in the history | Same |
+| Dependabot | Opens weekly pull requests for Rust and npm updates, monthly for Actions. CI must pass before merging, so an update that adds network code is caught | Weekly |
+| CodeQL, dependency review | Code-level security bugs in Rust, TypeScript and the workflows; vulnerable or badly licensed dependencies added by a pull request | Only while the repository is public (free there, paid on private) |
+
+Ignored advisories are listed in `deny.toml` with a reason and must be removed when the fix lands.
+
+Not covered yet:
+
+- **Windows capture at runtime.** Hooks, screen capture and UI Automation need a real desktop, so no automatic runtime socket test covers them. The source scan and dependency check still apply to that code.
+- **WebView2's own processes.** The window is drawn by Microsoft's WebView2, which runs in separate processes that the app does not control. The content security policy stops our page from reaching the network; it does not govern what WebView2 itself does.
+- **Blocking a release.** Checks run on every pull request, but GitHub only lets a failed check block merging on a private repository with a paid plan. Until the repository is public (row 3.1) and `main` requires the checks to pass, a red check is a warning that a person must respect.

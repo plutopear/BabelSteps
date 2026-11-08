@@ -1,0 +1,34 @@
+# Automatic dependency updates. Free on private and public repositories.
+# Each update is a pull request, so CI (tests, privacy checks, cargo-deny)
+# runs on it before anything reaches main. An update that pulls in a
+# networking crate fails those checks and must not be merged.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for all minor and patch updates keeps Windows CI minutes low.
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

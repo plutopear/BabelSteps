@@ -22,6 +22,7 @@ Read the section you need, not the whole file. Start a session with the `babelst
 | Steps Recorder facts, code signing options | `research/baseline-and-competitors.md` |
 | Document model, Markdown export | `core/` (shipping code) |
 | Windows experiments | `spikes/win-capture/` (throwaway: reference it, do not ship it) |
+| Automatic privacy checks, CI | `checks/` (scans run by `cargo test`), `scripts/ci/`, `.github/workflows/ci.yml`; coverage in `docs/04-privacy-and-security.md` section 8 |
 
 ## Rules from what M0 proved
 
