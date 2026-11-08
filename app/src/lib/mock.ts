@@ -138,6 +138,14 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       settings = structuredClone(n);
       return Object.values(n.hotkeys).filter((k) => k.split("+").length < 4).map((k) => `${k} may clash with browsers or other apps.`);
     }
+    case "export_settings":
+      return null;
+    case "import_settings": {
+      // Dev only: a file name ending in bad.json plays a refused file.
+      if (String(a.path).endsWith("bad.json")) throw { kind: "invalid_argument", message: "This file is not a BabelSteps settings export." };
+      settings = { ...structuredClone(settings), keepScreenshots: 50, closeToTray: true };
+      return [];
+    }
     case "clear_notice":
       R.notice = null;
       return;

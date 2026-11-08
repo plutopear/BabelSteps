@@ -101,6 +101,10 @@ export const api = {
   getSettings: () => call<Settings>("get_settings"),
   /** Saves and applies; returns warnings about shortcuts that clash. */
   saveSettings: (settings: Settings) => call<string[]>("save_settings", { settings }),
+  /** C7: writes the saved settings (not machine-specific ones) to a file. */
+  exportSettings: (path: string) => call<void>("export_settings", { path }),
+  /** C7: reads a settings file and saves it like a normal save; returns the same shortcut warnings. */
+  importSettings: (path: string) => call<string[]>("import_settings", { path }),
 };
 
 // File pickers go through the dialog plugin's commands (already allowed:
@@ -114,6 +118,39 @@ export async function pickSavePath(defaultName: string): Promise<string | null> 
     options: { defaultPath: defaultName, filters: [{ name: "PDF document", extensions: ["pdf"] }] },
   });
   return r ?? null;
+}
+
+// C7: settings files use the same dialog commands. The backend reads and
+// writes the chosen file; the page never sees its contents.
+export async function pickSettingsSavePath(): Promise<string | null> {
+  if (!inTauri) {
+    if (import.meta.env.DEV) return "C:\\Sample\\babelsteps-settings.json";
+    return null;
+  }
+  const r = await invoke<string | null>("plugin:dialog|save", {
+    options: {
+      defaultPath: "babelsteps-settings.json",
+      title: "Export settings",
+      filters: [{ name: "BabelSteps settings", extensions: ["json"] }],
+    },
+  });
+  return r ?? null;
+}
+
+export async function pickSettingsOpenPath(): Promise<string | null> {
+  if (!inTauri) {
+    if (import.meta.env.DEV) return "C:\\Sample\\babelsteps-settings.json";
+    return null;
+  }
+  const r = await invoke<string | string[] | null>("plugin:dialog|open", {
+    options: {
+      directory: false,
+      multiple: false,
+      title: "Import settings",
+      filters: [{ name: "BabelSteps settings", extensions: ["json"] }],
+    },
+  });
+  return Array.isArray(r) ? (r[0] ?? null) : (r ?? null);
 }
 
 export async function pickFolder(): Promise<string | null> {

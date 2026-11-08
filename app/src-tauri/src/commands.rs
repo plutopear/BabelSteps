@@ -95,7 +95,7 @@ pub(crate) fn default_library(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(base.join("BabelSteps"))
 }
 
-fn require_absolute(p: &str, what: &str) -> AppResult<PathBuf> {
+pub(crate) fn require_absolute(p: &str, what: &str) -> AppResult<PathBuf> {
     let path = PathBuf::from(p);
     if p.is_empty() || !path.is_absolute() {
         return Err(AppError::new(ErrorKind::InvalidArgument, format!("{what} must be a full path")));
