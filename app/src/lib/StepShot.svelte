@@ -50,7 +50,7 @@
       .screenshot(p)
       .then((buf) => {
         if (cancelled) return;
-        made = URL.createObjectURL(new Blob([buf], { type: "image/png" }));
+        made = URL.createObjectURL(new Blob([buf], { type: /\.jpe?g$/i.test(p) ? "image/jpeg" : "image/png" }));
         url = made;
       })
       .catch((e) => {

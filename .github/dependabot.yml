@@ -9,7 +9,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       # One PR for all minor and patch updates keeps Windows CI minutes low.
       rust-minor-and-patch:
@@ -19,11 +19,18 @@ updates:
     directory: /app
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
+      # A different day from cargo, so their pull requests (each runs three
+      # workflows) don't all start CI at the same moment.
+      day: tuesday
+    open-pull-requests-limit: 3
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
+      # vite 8 needs vite-plugin-svelte 7 (and the reverse), so a separate
+      # pull request for each fails npm ci. Update them together.
+      vite-toolchain:
+        patterns: ["vite", "@sveltejs/vite-plugin-svelte"]
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
