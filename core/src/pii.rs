@@ -15,12 +15,14 @@
 //! All offsets are byte offsets into the input.
 
 use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr}; // Address parsers only. Nothing here opens a socket.
 use std::sync::OnceLock;
 
 /// What a match was detected as.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Kind {
     Email,
     Phone,

@@ -13,6 +13,7 @@ pub mod normalize;
 pub mod notice;
 pub mod password;
 pub mod pii;
+pub mod review;
 pub mod screenshot;
 pub mod settings;
 pub mod settings_transfer;
