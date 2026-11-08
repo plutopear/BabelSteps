@@ -25,7 +25,7 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 babelsteps-windows = { path = "../../platform/windows" }
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation"] }
-windows-core = "0.62"
+windows-core = "0.100"
 
 [features]
 # Embed the built frontend. Without it a release build points at the dev server
