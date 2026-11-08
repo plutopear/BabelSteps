@@ -56,6 +56,19 @@ fn ms(d: u64) {
     sleep(Duration::from_millis(d));
 }
 
+/// Poll until `f` is true or `limit_ms` passes. A fixed sleep after a capture rebuild
+/// was flaky: starting capture again takes a variable time under load.
+fn wait_until(limit_ms: u64, mut f: impl FnMut() -> bool) -> bool {
+    let t = Instant::now();
+    while t.elapsed() < Duration::from_millis(limit_ms) {
+        if f() {
+            return true;
+        }
+        ms(50);
+    }
+    f()
+}
+
 fn config(keys: bool) -> RecorderConfig {
     RecorderConfig { keystrokes_enabled: keys, only_injected: true, ignore_own_windows: false, ..RecorderConfig::default() }
 }
@@ -660,9 +673,12 @@ fn lock_and_sleep(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     win.safe_click(bx, by)?; // Still locked: not recorded.
     ms(200);
     let rebuilds_before = r.status().capture.rebuilds;
+    let frames_before = r.status().capture.wgc_frames;
     r.simulate_session(SessionEvent::Unlocked);
-    ms(1200); // Capture restarts and delivers a fresh frame.
-    let back = !r.status().away;
+    // Capture restarts and delivers a fresh frame: wait for it, up to 6 s.
+    let back = wait_until(6000, || !r.status().away);
+    wait_until(6000, || r.status().capture.wgc_frames > frames_before);
+    ms(300);
     win.set_red(false);
     ms(300);
     win.safe_click(bx, by)?; // 2: recorded, with a fresh picture.
@@ -672,8 +688,11 @@ fn lock_and_sleep(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     ms(300);
     win.safe_click(bx, by)?; // Asleep: not recorded.
     ms(200);
+    let frames_before = r.status().capture.wgc_frames;
     r.simulate_session(SessionEvent::Resume);
-    ms(1200);
+    wait_until(6000, || !r.status().away);
+    wait_until(6000, || r.status().capture.wgc_frames > frames_before);
+    ms(300);
     win.set_red(false); // The click made while asleep turned the window red.
     ms(300);
     win.safe_click(bx, by)?; // 3: recorded.
