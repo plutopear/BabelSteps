@@ -144,6 +144,17 @@
     }
   }
 
+  // PSR-2: the app always shows when each step happened, in local time.
+  function stepTime(ms: number): string {
+    return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function stepDateTime(ms: number): string {
+    return new Date(ms).toLocaleString([], { dateStyle: "full", timeStyle: "medium" });
+  }
+  const firstStepMs = $derived(
+    rec.blocks.find((b): b is Block & { type: "step" } => b.type === "step" && b.captured_unix_ms > 0)?.captured_unix_ms ?? 0,
+  );
+
   function windowKey(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
@@ -288,7 +299,14 @@
       >
         <div class="block-head">
           <strong>{describeBlock(block, i)}</strong>
-          {#if block.type === "step"}<span class="hint">{actionText(block)}</span>{/if}
+          {#if block.type === "step"}
+            <span class="hint">{actionText(block)}</span>
+            {#if block.captured_unix_ms > 0}
+              <time class="hint" datetime={new Date(block.captured_unix_ms).toISOString()} title={stepDateTime(block.captured_unix_ms)}>
+                at {stepTime(block.captured_unix_ms)}
+              </time>
+            {/if}
+          {/if}
           <span class="spacer"></span>
           <button type="button" data-act="up" disabled={i === 0} onclick={() => move(i, -1)} aria-label={`Move block ${i + 1} up`}>Move up</button>
           <button type="button" data-act="down" disabled={i === rec.blocks.length - 1} onclick={() => move(i, 1)} aria-label={`Move block ${i + 1} down`}>Move down</button>
@@ -406,5 +424,5 @@
 {/if}
 
 {#if showExport}
-  <ExportDialog title={rec.title} {save} onclose={() => (showExport = false)} />
+  <ExportDialog title={rec.title} {firstStepMs} {save} onclose={() => (showExport = false)} />
 {/if}

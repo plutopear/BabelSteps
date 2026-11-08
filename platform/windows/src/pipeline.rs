@@ -166,6 +166,9 @@ pub struct RecorderReport {
     pub hooks: HookStats,
     pub write_errors: Vec<String>,
     pub elapsed: Duration,
+    /// Clicks and key presses lost during this recording because the hook
+    /// queue was full (PSR-5 "missed"). `hooks.dropped` counts since the app started.
+    pub missed_inputs: u64,
 }
 
 enum Control {
@@ -217,6 +220,8 @@ pub struct Recorder {
     analysis: Option<JoinHandle<Recording>>,
     writer_done: Receiver<(Bundle, Vec<String>)>,
     started: Instant,
+    /// `hooks::stats().dropped` when this recording started.
+    dropped_at_start: u64,
 }
 
 impl Recorder {
@@ -257,6 +262,7 @@ impl Recorder {
         };
         drop(write_tx);
 
+        let dropped_at_start = hooks::stats().dropped;
         let (hook_handle, raw_rx) = match hooks::start() {
             Ok(h) => h,
             Err(e) => {
@@ -282,6 +288,7 @@ impl Recorder {
             analysis: Some(analysis),
             writer_done: done_rx,
             started: Instant::now(),
+            dropped_at_start,
         })
     }
 
@@ -330,10 +337,12 @@ impl Recorder {
             .writer_done
             .recv_timeout(Duration::from_secs(120))
             .map_err(|_| anyhow::anyhow!("the image writer did not finish"))?;
+        let hook_stats = hooks::stats();
         let report = RecorderReport {
             recording,
             status: self.status(),
-            hooks: hooks::stats(),
+            missed_inputs: hook_stats.dropped.saturating_sub(self.dropped_at_start),
+            hooks: hook_stats,
             write_errors,
             elapsed: self.started.elapsed(),
         };

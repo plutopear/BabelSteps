@@ -7,6 +7,9 @@
 //! document structure (`# `, `- `, `1. `, `> `, ...) is backslash-guarded.
 //! `markdown_import` reverses this for the round trip.
 
+use crate::export_options::{
+    recorded_on_line, step_time, technical_details, ExportOptions, DETAILS_HEADING, DETAILS_STEPS_HEADING, TIME_PREFIX,
+};
 use crate::model::{Block, Recording};
 
 /// Escape characters that would be interpreted as Markdown inline syntax.
@@ -161,7 +164,17 @@ fn is_empty_block(b: &Block) -> bool {
 }
 
 pub fn to_markdown(rec: &Recording) -> String {
+    to_markdown_with(rec, &ExportOptions::default())
+}
+
+/// Markdown with the export options applied (step times, technical details).
+pub fn to_markdown_with(rec: &Recording, opts: &ExportOptions) -> String {
     let mut out = format!("# {}\n", plain(&rec.title)).replace("# \n", "#\n");
+    if let Some(line) = recorded_on_line(rec, opts) {
+        out.push('\n');
+        out.push_str(&guard_line(&escape_inline(&line)));
+        out.push('\n');
+    }
 
     let mut step_no = 0usize;
     for (i, block) in rec.blocks.iter().enumerate() {
@@ -174,6 +187,10 @@ pub fn to_markdown(rec: &Recording) -> String {
             Block::Step(step) => {
                 step_no += 1;
                 let mut parts = vec![format!("## Step {step_no}. {}", plain(&step.title)).trim_end().to_string()];
+                if let Some(t) = step_time(rec, step, opts) {
+                    // Markdown import recognises and drops this line (`is_step_time_line`).
+                    parts.push(format!("*{TIME_PREFIX}{t}*"));
+                }
                 let desc = paragraph(&step.description);
                 let has_desc = !desc.is_empty();
                 if has_desc {
@@ -232,6 +249,18 @@ pub fn to_markdown(rec: &Recording) -> String {
             out.push('\n');
             out.push_str(&r);
             out.push('\n');
+        }
+    }
+    if let Some(d) = technical_details(rec, opts) {
+        out.push_str(&format!("\n## {DETAILS_HEADING}\n\n"));
+        for (label, value) in &d.facts {
+            out.push_str(&format!("- {label}: {}\n", escape_inline(value).trim()));
+        }
+        if !d.steps.is_empty() {
+            out.push_str(&format!("\n### {DETAILS_STEPS_HEADING}\n\n"));
+            for (n, line) in &d.steps {
+                out.push_str(&format!("- Step {n}: {}\n", escape_inline(line).trim()));
+            }
         }
     }
     out

@@ -10,7 +10,8 @@
 #[cfg(windows)]
 pub mod windows;
 
-use babelsteps_core::export::{prepare_html_export, ExportReport};
+use babelsteps_core::export::{prepare_html_export_with, ExportReport};
+use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::Recording;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -168,10 +169,11 @@ pub fn export_pdf_with(
     out_path: &Path,
     header_footer: bool,
     footer_uri: Option<String>,
+    opts: &ExportOptions,
 ) -> Result<ExportReport, PdfExportError> {
     sweep_stale_temp();
     let temp = TempFolder::new("pdf").map_err(|e| PdfExportError::Io(e.to_string()))?;
-    let report = prepare_html_export(rec, source_dir, temp.path()).map_err(PdfExportError::Prepare)?;
+    let report = prepare_html_export_with(rec, source_dir, temp.path(), opts).map_err(PdfExportError::Prepare)?;
 
     let printed = temp.path().join("printed.pdf");
     let job = PdfJob {
@@ -241,7 +243,7 @@ mod tests {
         let out = TempDir::new("pdfout");
         let rec = generate_bundle(src.path(), 2, 40, 20);
         let dest = out.path().join("a.pdf");
-        let rep = export_pdf_with(&Fake { fail: false }, &rec, src.path(), &dest, false, Some(String::new())).unwrap();
+        let rep = export_pdf_with(&Fake { fail: false }, &rec, src.path(), &dest, false, Some(String::new()), &ExportOptions::default()).unwrap();
         assert_eq!(rep.steps, 2);
         assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF-fake");
         assert!(!out.path().join("a.pdf.part").exists());
@@ -255,7 +257,7 @@ mod tests {
         let out = TempDir::new("pdfout");
         let rec = generate_bundle(src.path(), 2, 40, 20);
         let dest = out.path().join("a.pdf");
-        let r = export_pdf_with(&Fake { fail: true }, &rec, src.path(), &dest, true, Some(String::new()));
+        let r = export_pdf_with(&Fake { fail: true }, &rec, src.path(), &dest, true, Some(String::new()), &ExportOptions::default());
         assert!(matches!(r, Err(PdfExportError::Print(_))));
         assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0, "no partial file");
         assert_eq!(temp_leftovers(), 0);

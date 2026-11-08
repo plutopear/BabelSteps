@@ -12,7 +12,8 @@
 //! Lost on import, because Markdown does not carry it: block ids (replaced by
 //! `b1`, `b2`, ...), click coordinates and buttons (every step becomes
 //! `Action::Manual`), UI targets, redaction rectangles, timestamps, the
-//! recording id, and blocks that render to nothing (empty text, empty lists).
+//! recording id, step times (the optional `*Time: ...*` line under a step
+//! heading is dropped), and blocks that render to nothing (empty text, empty lists).
 //! A withheld step keeps `screenshot_withheld` but has no image path.
 //! Adjacent lists of the same kind stay separate here, but other Markdown
 //! tools may merge them into one.
@@ -20,6 +21,7 @@
 use std::collections::VecDeque;
 use std::ops::Range;
 
+use crate::export_options::is_step_time_line;
 use crate::markdown::{unguard_line, IMAGE_ALT, STEP_END_MARK, WITHHELD_SENTENCE};
 use crate::model::{Action, Block, CalloutKind, Recording, StepBlock};
 
@@ -174,6 +176,13 @@ pub fn from_markdown(md: &str) -> Recording {
             } else {
                 blocks.push(Block::Heading { id: new_id(), level: lvl as u8, text: unescape_plain(rest) });
             }
+            continue;
+        }
+
+        // The optional step time (`*Time: 14:05:09*`) right under a step heading.
+        // Dropped: without the time zone it cannot be turned back into a timestamp.
+        if open == Some(false) && is_step_time_line(first) {
+            requeue(&mut chunks, range.start + 1..range.end);
             continue;
         }
 

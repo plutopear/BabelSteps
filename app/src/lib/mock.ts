@@ -154,11 +154,18 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       if (!R.active) throw { kind: "invalid_argument", message: "" };
       await wait(1500);
       const rec = store.get(R.path!)!;
+      if (!rec.blocks.some((b) => b.type === "step") && !rec.blocks.some((b) => b.id === "typed-text-notice")) {
+        rec.blocks.unshift({
+          type: "text", id: "typed-text-notice",
+          text: R.keystrokes ? "Typed text was recorded. Review it before sharing." : "Typed text was not recorded. Keyboard shortcuts were.",
+        });
+      }
       for (let i = 0; i < R.steps; i++) rec.blocks.push(step(i + 1, `Left-click sample item ${i + 1}`));
       const path = R.path!;
       R.active = false;
+      R.notice = R.steps ? `Recorded ${R.steps} step${R.steps === 1 ? "" : "s"}.` : "No steps were recorded.";
       if (settings.keepScreenshots !== null && R.steps > settings.keepScreenshots) {
-        R.notice = `Kept screenshots for the newest ${settings.keepScreenshots} steps. Removed the screenshots of ${R.steps - settings.keepScreenshots} older steps.`;
+        R.notice += ` Kept screenshots for the newest ${settings.keepScreenshots} steps. Removed the screenshots of ${R.steps - settings.keepScreenshots} older steps.`;
       }
       open = path;
       return { path, recording: structuredClone(rec) };
