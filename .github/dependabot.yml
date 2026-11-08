@@ -24,6 +24,11 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
+      # vite 8 needs vite-plugin-svelte 7 (and the reverse), so a separate
+      # pull request for each fails npm ci. Update them together.
+      vite-toolchain:
+        patterns: ["vite", "@sveltejs/vite-plugin-svelte"]
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
