@@ -180,6 +180,9 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         st.steps = s.steps;
         st.withheld = s.withheld;
         st.warnings = s.warnings;
+        if s.away {
+            st.warnings.push("Not recording: the screen is locked or the computer is asleep.".into());
+        }
         st.warnings.extend(a.cue_warning.clone());
         st.scope = a.scope.clone();
     }
@@ -327,6 +330,14 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     // PSR-5: the counts are shown after every recording, before any retention notice.
     let s = &report.status;
     let mut notice = babelsteps_core::notice::recording_summary(s.steps, s.withheld, s.no_screenshot, report.missed_inputs);
+    if s.away_periods > 0 {
+        // PSR-10: say that nothing was recorded while away, so a gap is not a surprise.
+        let n = s.away_periods;
+        notice.push_str(&format!(
+            " The screen was locked or the computer asleep {n} time{}; nothing is recorded then.",
+            if n == 1 { "" } else { "s" }
+        ));
+    }
     if let Some(more) = apply_retention(&bundle, &mut recording, &settings) {
         notice.push(' ');
         notice.push_str(&more);

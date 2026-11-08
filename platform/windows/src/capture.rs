@@ -180,6 +180,13 @@ impl Capturer {
         }
     }
 
+    /// Throw away every kept frame and start capture again. Used when the person
+    /// comes back from a lock or sleep: whatever was kept before is stale, and
+    /// until a new frame arrives a click is flagged as not verified.
+    pub fn reset(&mut self) {
+        self.rebuild();
+    }
+
     /// Rebuild if the set of monitors or their sizes changed, or the GPU was lost.
     fn refresh(&mut self) {
         let now = monitors::enumerate();

@@ -12,7 +12,7 @@
 use anyhow::{anyhow, Context, Result};
 use babelsteps_core::storage::Bundle;
 use babelsteps_core::{Action, Block, Recording, StepBlock};
-use babelsteps_windows::testing::{self, Frame, Monitor};
+use babelsteps_windows::testing::{self, Frame, Monitor, SessionEvent};
 use babelsteps_windows::testwin::{self, TestWindow, GREEN};
 use babelsteps_windows::{Recorder, RecorderConfig, RecorderReport, Scope};
 use std::path::{Path, PathBuf};
@@ -606,6 +606,80 @@ fn pause_and_comment(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()>
     Ok(())
 }
 
+/// PSR-10. The real lock, sleep and wake messages need the owner (they take over
+/// the screen), so this sends the same messages through the recorder's real hidden
+/// window. What it proves: the window hears them, nothing is recorded while away,
+/// and coming back rebuilds capture. What it cannot prove: that Windows sends them
+/// (the live lock test does), or what a real lock screen does to capture.
+fn lock_and_sleep(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let r = start(dir, "lock", false)?;
+    let (bx, by) = win.background_point()?;
+    win.set_red(false);
+    win.safe_click(bx, by)?; // 1: recorded.
+    ms(300);
+    let heard = r.simulate_session(SessionEvent::Locked);
+    ms(400);
+    let away_now = r.status().away;
+    win.safe_click(bx, by)?; // Locked: not recorded.
+    ms(200);
+    r.simulate_session(SessionEvent::Suspend); // Sleep on top of the lock.
+    ms(200);
+    r.simulate_session(SessionEvent::Resume); // Wakes onto the lock screen: still away.
+    ms(400);
+    let still_away = r.status().away;
+    win.safe_click(bx, by)?; // Still locked: not recorded.
+    ms(200);
+    let rebuilds_before = r.status().capture.rebuilds;
+    r.simulate_session(SessionEvent::Unlocked);
+    ms(1200); // Capture restarts and delivers a fresh frame.
+    let back = !r.status().away;
+    win.set_red(false);
+    ms(300);
+    win.safe_click(bx, by)?; // 2: recorded, with a fresh picture.
+    ms(400);
+    // A plain sleep and wake, with no lock.
+    r.simulate_session(SessionEvent::Suspend);
+    ms(300);
+    win.safe_click(bx, by)?; // Asleep: not recorded.
+    ms(200);
+    r.simulate_session(SessionEvent::Resume);
+    ms(1200);
+    win.set_red(false); // The click made while asleep turned the window red.
+    ms(300);
+    win.safe_click(bx, by)?; // 3: recorded.
+    ms(400);
+    let (bundle, report) = stop(r)?;
+    let cl = clicks(&report.recording);
+    c.check("lock: the recorder's window hears the session messages", heard && away_now, format!("heard {heard}, away after lock {away_now}"));
+    c.check("lock: waking onto a lock screen is still away", still_away, "");
+    c.check("lock: back after the unlock", back, "");
+    c.check(
+        "lock and sleep: only clicks made while present are recorded",
+        cl.len() == 3,
+        format!("{} click steps for 3 present and 3 away clicks", cl.len()),
+    );
+    c.check(
+        "lock: capture was rebuilt on the way back",
+        report.status.capture.rebuilds > rebuilds_before,
+        format!("rebuilds {rebuilds_before} -> {}", report.status.capture.rebuilds),
+    );
+    c.check("lock: two lock and sleep periods counted", report.status.away_periods == 2, format!("{}", report.status.away_periods));
+    let (px, py) = win.probe_point()?;
+    let m = monitor_of(px, py)?;
+    let mut fresh = 0;
+    for s in cl.iter().skip(1) {
+        if let Some(Ok(f)) = s.screenshot.as_deref().map(|rel| load(&bundle, rel, &m)) {
+            if f.sample(px, py).is_some_and(|p| near(p, GREEN, 30)) {
+                fresh += 1;
+            }
+        }
+    }
+    c.check("lock: the clicks after coming back have a current picture, not marked as unverified", fresh == 2 && report.status.not_verified == 0, format!("{fresh}/2 current, {} not verified", report.status.not_verified));
+    let (unref, missing) = orphans(&bundle, &report.recording);
+    c.check("lock: no image from an away click is on disk", unref.is_empty() && missing.is_empty(), format!("unreferenced {unref:?}, missing {missing:?}"));
+    Ok(())
+}
+
 fn hook_speed(c: &mut Checks, dir: &Path) -> Result<()> {
     let r = start(dir, "hooks", false)?;
     let before = testing::hook_stats();
@@ -1038,6 +1112,7 @@ fn run(out: &Path) -> Result<Checks> {
         gdi_marked(&mut c, &win, &work)?;
         scopes(&mut c, &win, &work)?;
         pause_and_comment(&mut c, &win, &work)?;
+        lock_and_sleep(&mut c, &win, &work)?;
         frame_cue(&mut c, &win, &work)?;
         edge_clicks(&mut c, &win, &work)?;
         remapped_hotkeys(&mut c, &win, &work)?;
