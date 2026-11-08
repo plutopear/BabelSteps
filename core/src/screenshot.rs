@@ -162,67 +162,6 @@ pub fn encode_jpeg(rgb: &[u8], width: u32, height: u32) -> Result<Vec<u8>, Strin
     Ok(out)
 }
 
-/// Colours in a palette PNG.
-const PALETTE_SIZE: usize = 256;
-/// NeuQuant learns from every 30th pixel: on the test screens the same choice
-/// and size as every 10th, in about 40% of the time.
-const PALETTE_SAMPLE: i32 = 30;
-/// Mean error per channel above which the palette version is not offered.
-/// UI test screens measured 0.01-0.07; a half-photo screen 1.4.
-const PALETTE_MAX_MEAN_ERROR: f64 = 0.5;
-
-/// Encode as a 256-colour PNG, for printed exports. UI screens use few colours
-/// (backgrounds, text and its anti-aliasing), so the palette version looked
-/// the same and was about half the size of full-colour PNG. Returns `None`
-/// when the palette would visibly change the picture (photos, gradients).
-/// Only IHDR, PLTE, IDAT and IEND chunks are written.
-pub fn encode_palette_png(rgb: &[u8], width: u32, height: u32) -> Result<Option<Vec<u8>>, String> {
-    check_len(rgb, width, height)?;
-    if rgb.is_empty() {
-        return Ok(None);
-    }
-    let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
-    let nq = color_quant::NeuQuant::new(PALETTE_SAMPLE, PALETTE_SIZE, &rgba);
-    let palette = nq.color_map_rgb();
-    let mut indices = Vec::with_capacity(rgb.len() / 3);
-    let mut error = 0u64;
-    for px in rgba.chunks_exact(4) {
-        let i = nq.index_of(px);
-        let c = &palette[i * 3..i * 3 + 3];
-        error += (0..3).map(|k| u64::from(px[k].abs_diff(c[k]))).sum::<u64>();
-        indices.push(i as u8);
-    }
-    if error as f64 / rgb.len() as f64 > PALETTE_MAX_MEAN_ERROR {
-        return Ok(None);
-    }
-    // Keep only the colours used: a 256-entry palette costs 768 bytes, which
-    // outweighs a small flat image.
-    let mut remap: [Option<u8>; PALETTE_SIZE] = [None; PALETTE_SIZE];
-    let mut used: Vec<u8> = Vec::new();
-    for i in indices.iter_mut() {
-        let old = usize::from(*i);
-        let new = *remap[old].get_or_insert_with(|| {
-            used.extend_from_slice(&palette[old * 3..old * 3 + 3]);
-            (used.len() / 3 - 1) as u8 // At most 256 entries: 0..=255.
-        });
-        *i = new;
-    }
-    let palette = used;
-    let mut out = Vec::with_capacity(indices.len() / 4);
-    {
-        let mut enc = png::Encoder::new(&mut out, width, height);
-        enc.set_color(png::ColorType::Indexed);
-        enc.set_depth(png::BitDepth::Eight);
-        enc.set_palette(palette);
-        enc.set_deflate_compression(png::DeflateCompression::Level(6));
-        enc.set_filter(png::Filter::NoFilter); // Filters do not help index data.
-        let mut w = enc.write_header().map_err(|e| e.to_string())?;
-        w.write_image_data(&indices).map_err(|e| e.to_string())?;
-        w.finish().map_err(|e| e.to_string())?;
-    }
-    Ok(Some(out))
-}
-
 /// Encode in the given format, at normal effort for PNG.
 pub fn encode(format: ShotFormat, rgb: &[u8], width: u32, height: u32, effort: Effort) -> Result<Vec<u8>, String> {
     match format {
@@ -414,24 +353,6 @@ mod tests {
         let (_, rgb) = decode(&png).unwrap();
         assert_eq!(rgb.get_pixel(0, 0).0, [255, 255, 255]);
         assert_eq!(rgb.get_pixel(1, 0).0, [0, 0, 0]);
-    }
-
-    #[test]
-    fn palette_png_is_near_exact_on_ui_and_refused_on_photos() {
-        let u = ui(600, 300);
-        let pal = encode_palette_png(u.as_raw(), 600, 300).unwrap().expect("UI fits a palette");
-        let names: Vec<String> = crate::testing::png_chunks(&pal).into_iter().map(|(n, _)| n).collect();
-        assert_eq!(names, ["IHDR", "PLTE", "IDAT", "IEND"]);
-        let (f, back) = decode(&pal).unwrap();
-        assert_eq!(f, ShotFormat::Png);
-        let worst = back.as_raw().iter().zip(u.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
-        assert!(worst <= 2, "three colours fit 256 entries almost exactly: worst {worst}");
-        // Only the colours used are in the palette.
-        let plte = crate::testing::png_chunks(&pal).into_iter().find(|(n, _)| n == "PLTE").unwrap().1;
-        assert!(plte.len() <= 3 * 16, "PLTE has {} entries", plte.len() / 3);
-        let p = photo(300, 200);
-        assert_eq!(encode_palette_png(p.as_raw(), 300, 200).unwrap(), None);
-        assert!(encode_palette_png(&[0; 5], 2, 1).is_err());
     }
 
     #[test]
