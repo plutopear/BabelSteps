@@ -7,6 +7,7 @@
 
 use crate::commands::{lock_current, AppState, OpenedRecording};
 use crate::error::{AppError, AppResult, ErrorKind};
+use babelsteps_core::settings::Settings;
 use babelsteps_core::storage::Bundle;
 use babelsteps_windows::hotkeys::{self, Hotkey};
 use babelsteps_windows::{Recorder, RecorderConfig};
@@ -40,6 +41,11 @@ pub struct RecState {
     start_requests: AtomicU64,
     hotkeys_ok: Mutex<Vec<bool>>,
     tray: Mutex<Option<TrayIcon>>,
+    /// Loaded at start-up; changed by `save_settings`.
+    pub(crate) settings: Mutex<Settings>,
+    /// Plain-language result of the last stop (screenshots removed, size
+    /// warning), shown until the user dismisses it.
+    notice: Mutex<Option<String>>,
     /// Where the tray icon is, so the recorder ignores clicks on it.
     tray_area: Arc<Mutex<Vec<babelsteps_core::Rect>>>,
 }
@@ -78,6 +84,7 @@ pub struct RecordingStatus {
     pub warnings: Vec<String>,
     pub note_requests: u64,
     pub start_requests: u64,
+    pub notice: Option<String>,
     pub hotkeys: Vec<HotkeyInfo>,
 }
 
@@ -104,6 +111,7 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         warnings: Vec::new(),
         note_requests: rs.note_requests.load(Ordering::Relaxed),
         start_requests: rs.start_requests.load(Ordering::Relaxed),
+        notice: rs.notice.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         hotkeys,
     };
     if let Some(a) = guard.as_ref() {
@@ -177,16 +185,59 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
             return Err(AppError::new(ErrorKind::Storage, format!("recording did not stop cleanly: {e}")));
         }
     };
-    let recording = match bundle.load() {
+    let mut recording = match bundle.load() {
         Ok(r) => r,
         Err(e) => {
             *lock_current(&app.state::<AppState>()) = Some(bundle);
             return Err(e.into());
         }
     };
+    let settings = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let notice = apply_retention(&bundle, &mut recording, &settings);
+    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = notice;
     let path = bundle.path().to_string_lossy().into_owned();
     *lock_current(&app.state::<AppState>()) = Some(bundle);
     Ok(OpenedRecording { path, recording })
+}
+
+/// A8: keep screenshots for the newest N steps only. The document is saved
+/// first and files are deleted after, so a failure never leaves a step that
+/// points at a missing picture. Returns a notice for the user, if any.
+fn apply_retention(bundle: &Bundle, recording: &mut babelsteps_core::model::Recording, settings: &Settings) -> Option<String> {
+    let Some(keep) = settings.keep_screenshots else {
+        // Unlimited (Q12): warn when the pictures take a lot of space.
+        let mb = dir_size(&bundle.images_dir()) / (1024 * 1024);
+        return (mb >= u64::from(settings.size_warning_mb)).then(|| {
+            format!(
+                "This recording's screenshots take about {mb} MB. In Settings you can keep screenshots for only the newest steps."
+            )
+        });
+    };
+    let mut trimmed = recording.clone();
+    let removed = trimmed.apply_retention(keep as usize);
+    if removed.is_empty() {
+        return None;
+    }
+    if bundle.save(&trimmed).is_err() {
+        return Some("The limit on kept screenshots could not be applied because the recording could not be saved. Nothing was removed.".into());
+    }
+    *recording = trimmed;
+    let failed = removed.iter().filter(|p| bundle.remove_image(p).is_err()).count();
+    let mut msg = format!(
+        "Kept screenshots for the newest {keep} steps. Removed the screenshots of {} older {}.",
+        removed.len(),
+        if removed.len() == 1 { "step" } else { "steps" }
+    );
+    if failed > 0 {
+        msg.push_str(&format!(" {failed} picture file(s) could not be deleted and remain in the recording folder."));
+    }
+    Some(msg)
+}
+
+fn dir_size(dir: &std::path::Path) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum())
+        .unwrap_or(0)
 }
 
 fn with_active(app: &AppHandle, f: impl FnOnce(&Recorder)) -> AppResult<()> {
@@ -244,6 +295,11 @@ pub fn stop_and_report(app: &AppHandle) -> bool {
 }
 
 // ---- commands ----------------------------------------------------------------
+
+#[tauri::command]
+pub fn clear_notice(app: AppHandle) {
+    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
 
 #[tauri::command]
 pub fn recording_status(app: AppHandle) -> RecordingStatus {
@@ -443,5 +499,36 @@ pub fn ensure_idle(rec: &State<'_, RecState>) -> AppResult<()> {
     if lock_active(rec).is_some() {
         return Err(busy_error());
     }
+    Ok(())
+}
+
+// ---- settings ------------------------------------------------------------------
+
+fn settings_path(app: &AppHandle) -> AppResult<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::new(ErrorKind::Storage, format!("no app data folder: {e}")))?;
+    Ok(dir.join("settings.json"))
+}
+
+/// Read the settings file at start-up. A missing or damaged file gives the defaults.
+pub fn load_settings(app: &AppHandle) {
+    if let Ok(p) = settings_path(app) {
+        *app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()) = Settings::load(&p);
+    }
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> Settings {
+    app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+#[tauri::command]
+pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<()> {
+    settings.validate().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
+    let path = settings_path(&app)?;
+    settings.save(&path).map_err(|e| AppError::new(ErrorKind::Storage, format!("settings were not saved: {e}")))?;
+    *app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
 }

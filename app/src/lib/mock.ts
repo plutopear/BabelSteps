@@ -76,7 +76,7 @@ function summary(rec: Recording): ExportSummary {
 }
 
 // Simulated recorder: one step every ~2 s while active and not paused.
-const R = { active: false, paused: false, keystrokes: false, path: null as string | null, steps: 0, notes: 0, noteRequests: 0, last: 0 };
+const R = { active: false, paused: false, keystrokes: false, path: null as string | null, steps: 0, notes: 0, noteRequests: 0, last: 0, notice: null as string | null };
 function recStatus() {
   const now = Date.now();
   if (R.active && !R.paused && now - R.last >= 2000) {
@@ -90,6 +90,7 @@ function recStatus() {
     warnings: R.active && R.steps >= 3 ? ["Sample warning: a slow check delayed one step."] : [],
     noteRequests: R.noteRequests,
     startRequests: 0,
+    notice: R.notice,
     hotkeys: [
       { action: "Start or stop recording", keys: "Ctrl+Alt+Shift+R", registered: true },
       { action: "Pause or resume", keys: "Ctrl+Alt+Shift+P", registered: true },
@@ -100,6 +101,7 @@ function recStatus() {
 }
 // Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
 (globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
+let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500 };
 function busy(): never {
   throw { kind: "busy", message: "" };
 }
@@ -111,6 +113,17 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
   switch (cmd) {
     case "recording_status":
       return recStatus();
+    case "get_settings":
+      return structuredClone(settings);
+    case "save_settings": {
+      const n = (a.settings as typeof settings);
+      if (n.keepScreenshots !== null && n.keepScreenshots < 1) throw { kind: "invalid_argument", message: "" };
+      settings = structuredClone(n);
+      return;
+    }
+    case "clear_notice":
+      R.notice = null;
+      return;
     case "set_editor_unsaved":
       return null;
     case "start_recording": {
@@ -144,6 +157,9 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       for (let i = 0; i < R.steps; i++) rec.blocks.push(step(i + 1, `Left-click sample item ${i + 1}`));
       const path = R.path!;
       R.active = false;
+      if (settings.keepScreenshots !== null && R.steps > settings.keepScreenshots) {
+        R.notice = `Kept screenshots for the newest ${settings.keepScreenshots} steps. Removed the screenshots of ${R.steps - settings.keepScreenshots} older steps.`;
+      }
       open = path;
       return { path, recording: structuredClone(rec) };
     }

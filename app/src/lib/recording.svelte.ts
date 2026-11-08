@@ -6,7 +6,7 @@ import type { RecordingStatus } from "./types";
 
 const IDLE: RecordingStatus = {
   active: false, paused: false, keystrokes: false, path: null, steps: 0,
-  withheld: 0, warnings: [], noteRequests: 0, startRequests: 0, hotkeys: [],
+  withheld: 0, warnings: [], noteRequests: 0, startRequests: 0, notice: null, hotkeys: [],
 };
 
 export const rs = $state({

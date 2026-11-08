@@ -160,3 +160,8 @@ kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; ba
 .busy-line { display: flex; align-items: center; gap: 0.5rem; }
 .rec-state.on { color: var(--text); font-weight: 600; }
 .rec-state .dot { width: 0.6rem; height: 0.6rem; margin-right: 0.3rem; }
+
+.settings-btn { margin-left: auto; }
+fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; }
+label.check { display: flex; gap: 0.5rem; align-items: center; }
+label.check input { width: auto; }

@@ -35,6 +35,9 @@ pub fn run() {
             recording::resume_recording,
             recording::add_comment,
             recording::stop_recording,
+            recording::clear_notice,
+            recording::get_settings,
+            recording::save_settings,
         ])
         .on_window_event(|window, event| {
             // Closing the window while recording stops and saves first.
@@ -75,6 +78,7 @@ pub fn run() {
             });
             #[cfg(not(windows))]
             let _ = main;
+            recording::load_settings(app.handle());
             recording::setup_hotkeys(app.handle());
             recording::setup_tray(app.handle())?;
             Ok(())
