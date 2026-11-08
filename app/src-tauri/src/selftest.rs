@@ -5,6 +5,7 @@
 //! parses the resulting PDF bytes.
 
 use crate::pdf::{export_pdf_with, PdfError, PdfJob, PdfPrinter};
+use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::{Block, Recording};
 use babelsteps_core::testing::generate_bundle;
 use lopdf::{Document, Object};
@@ -377,7 +378,7 @@ fn body(app: &AppHandle, work: &Path, rep: &mut Report) {
         let out = work.join(if header_footer { "b.pdf" } else { "a.pdf" });
         let timed = Timed { inner: printer.as_ref(), spent: Mutex::new(Duration::ZERO) };
         let t = Instant::now();
-        let r = export_pdf_with(&timed, &rec, &src, &out, header_footer, Some(String::new()));
+        let r = export_pdf_with(&timed, &rec, &src, &out, header_footer, Some(String::new()), &ExportOptions::default());
         let total = t.elapsed();
         let report = match r {
             Ok(r) => r,
@@ -470,7 +471,7 @@ fn smaller_images_timing(printer: &dyn PdfPrinter, work: &Path, rep: &mut Report
     let timed = Timed { inner: printer, spent: Mutex::new(Duration::ZERO) };
     let out = work.join("small.pdf");
     let t = Instant::now();
-    let r = export_pdf_with(&timed, &rec, &src, &out, false, Some(String::new()));
+    let r = export_pdf_with(&timed, &rec, &src, &out, false, Some(String::new()), &ExportOptions::default());
     let total = t.elapsed();
     let print = *timed.spent.lock().unwrap();
     let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
@@ -491,7 +492,7 @@ fn negative_control(printer: &dyn PdfPrinter, work: &Path, rep: &mut Report) {
     let rec = generate_bundle(&src, 2, 600, 300);
     let hits = |footer: Option<String>, name: &str| -> Result<(Vec<String>, String), String> {
         let out = work.join(name);
-        export_pdf_with(printer, &rec, &src, &out, true, footer).map_err(|e| format!("{e:?}"))?;
+        export_pdf_with(printer, &rec, &src, &out, true, footer, &ExportOptions::default()).map_err(|e| format!("{e:?}"))?;
         let (f, _, _) = inspect(&out)?;
         let mut h: Vec<String> = needles().into_iter().filter(|(_, n)| f.text.contains(n.as_str())).map(|(k, _)| k).collect();
         h.extend(f.raw_hits.clone());

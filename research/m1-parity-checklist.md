@@ -22,7 +22,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
-**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1). PSR-2, PSR-3 and PSR-5 were decided on 2026-11-08 (Q30) and are not built yet. A6 is decided (Q13) and built on 2026-11-08; its self-test checks passed on Windows.
+**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-7 (command-line control in v1). PSR-2, PSR-3, PSR-5 and PSR-6 were decided on 2026-11-08 (Q25, Q30) and are built on branch `claude/project-thread-164l6e` (core unit tests and the Windows build pass; not yet checked by hand in the app). A6 is decided (Q13) and built on 2026-11-08; its self-test checks passed on Windows.
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
@@ -57,11 +57,11 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | D6 | A screenshot is ready within 150 ms of a click and shows the screen just before the click. This is a deliberate difference from Steps Recorder, which shows the screen after the click (Q3). | Partial |
 | D7 | Memory while recording stays under 250 MB on a 5120x1440 screen, including in long sessions. | Partial |
 | PSR-1 | Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a recording stays small enough to email. Ours must make a comparable size decision (crop, format, downscaling). | Not built |
-| PSR-2 | Each step has a number and a timestamp. | Partial |
-| PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Not built |
+| PSR-2 | Each step has a number and a timestamp. | Built, app not tested |
+| PSR-3 | The output states that typed text and passwords were not recorded (when keystroke capture is off). | Built, app not tested |
 | PSR-4 | Function keys, modifier keys and shortcuts are shown even when typed text is not. | Partial |
-| PSR-5 | The document states how many steps were recorded and how many were missed or had errors. | Not built |
-| PSR-6 | An additional-details section lists the operating system, program and UI elements per step. | Owner decision |
+| PSR-5 | The document states how many steps were recorded and how many were missed or had errors. | Built, app not tested |
+| PSR-6 | An additional-details section lists the operating system, program and UI elements per step. | Built, app not tested |
 | PSR-7 | Command-line control: start and stop from a script, set the output path and screenshot limit, hide the UI, limit to one process. | Owner decision |
 | PSR-8 | Clicks in elevated (admin) windows and on UAC prompts: what gets recorded, and whether password detection fails closed when UI Automation is denied. | Not tested |
 | PSR-9 | Clicks on the recorder's own controls (window, tray icon, menus, hotkeys) are left out of the recording. | Partial |
@@ -255,21 +255,23 @@ Image size: Steps Recorder stores full-monitor JPEGs of about 390 KB each, so a 
 - **Evidence:** platform/windows/src/frame.rs encode_png (PNG only). research/m0-spike-results.md 'Image size': 1.5-3.8 MB per full 5120x1440 PNG frame, with finding 7 estimating 190-560 MB per 100 steps against about 40 MB for Steps Recorder. research/m2-results.md D5: a 100-step 5120x1440 PDF of synthetic images was 225.6 MB, probably overstated because synthetic images compress poorly. docs/05-roadmap.md M1 lists 'Image size decision: crop to the active window, choice of format, and downscaling for export' as open.
 - **Gap:** No crop, no lossy format and no downscaling for storage are built (the PDF scales to 2000 px wide only for printing). Recordings are roughly 4 to 10 times larger per image than Steps Recorder's. This is Claude's technical choice, but the export size decides whether files can be emailed or attached to tickets. Needed: implement it, then measure disk size and export size per 100 real steps.
 
-### PSR-2: Partial
+### PSR-2: Built, app not tested
 
 Each step has a number and a timestamp.
 
 - **Steps Recorder:** Each step has a number and timestamp.
 - **Evidence:** Numbers: core/src/normalize.rs steps_keep_their_order_and_get_sequential_ids; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image. Time: StepBlock.captured_unix_ms is stored (core/src/model.rs), but in core/src/markdown.rs, html.rs and export.rs it appears only in test fixtures.
 - **Gap:** Numbering is unit-tested and does not depend on the desktop. The capture time is stored but shown nowhere: not in Markdown, HTML or PDF exports, and not in the app UI. Showing a time per step is not built. Decided 2026-11-08 (Q30): always shown in the app, an off-by-default option in exports. Needs building, then a unit test.
+- **Built 2026-11-08:** the editor shows each step's local time; the export dialog option "The time of each step" (off by default) adds `Time: HH:MM:SS` under each step and the date once at the top (core/src/export_options.rs; tests in core/tests/export_options_integration.rs). Times use the UTC offset at the first step, so a recording that crosses a daylight-saving change is off by an hour after it (guess: rare). Markdown import drops the time line.
 
-### PSR-3: Not built
+### PSR-3: Built, app not tested
 
 The output states that typed text and passwords were not recorded (when keystroke capture is off).
 
 - **Steps Recorder:** The file says passwords and any other typed text were not recorded, except function and shortcut keys.
 - **Evidence:** No such notice in core/src/markdown.rs, html.rs or export.rs (grep for 'not recorded' and 'keystroke' found nothing). The panel and tray tooltip show keystrokes on or off while recording (m1-results 'Tray test').
 - **Gap:** Not built. Decided 2026-11-08 (Q30): one deletable line in every export by default, worded for keystrokes on or off. It must state only what was not captured and never claim the export is free of sensitive data (product rule). Then a unit test on the exporters.
+- **Built 2026-11-08:** a new recording starts with one ordinary text block, "Typed text was not recorded. Keyboard shortcuts were." or "Typed text was recorded. Review it before sharing." (core/src/notice.rs). The user can edit or delete it and it stays that way; an unedited "not recorded" line becomes "recorded" if a later session records typed text. Older recordings that already have steps get no line.
 
 ### PSR-4: Partial
 
@@ -279,21 +281,23 @@ Function keys, modifier keys and shortcuts are shown even when typed text is not
 - **Evidence:** Unit tests: core/src/normalize.rs named_shortcuts, window_shortcuts_and_general_format, keystrokes_off_emits_only_shortcuts_with_ctrl_alt_or_meta, bare_escape_and_named_keys_are_presses_that_end_the_run; platform/windows/src/keys.rs ctrl_s_is_a_char_with_ctrl, altgr_fake_ctrl_is_not_reported_as_ctrl, named_and_fixed_keys. Live checks cover only that our own hotkeys and F24 make no step (capture_selftest 'hooks: F24 with keystrokes off makes no step', the remapped-hotkey checks, and 0 of 11 in the 2026-11-07 live test).
 - **Gap:** No live test sends an ordinary shortcut (for example Ctrl+S) through the real hooks and checks its step. By design, bare function keys and Enter or Tab make no step when keystrokes are off, unlike Steps Recorder; confirm that difference is acceptable. Dead keys are recorded as the plain letter (known). To close: a capture_selftest case on our test window (usual OK).
 
-### PSR-5: Not built
+### PSR-5: Built, app not tested
 
 The document states how many steps were recorded and how many were missed or had errors.
 
 - **Steps Recorder:** Summary line: 'Recorded Steps: 31, Missed Steps: 0, Other Errors: 0'.
 - **Evidence:** Steps carry screenshot_withheld, and exports leave out withheld images (core/src/markdown.rs withheld_step_never_links_its_image; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image). Pipeline status counts withheld steps and UI Automation timeouts (read by capture_selftest). Grep for a recorded or missed summary in core/src/html.rs and markdown.rs found none.
 - **Gap:** No total of recorded, withheld, or over-budget steps reaches the user or the document. Decided 2026-11-08 (Q30): counts shown in the app after every recording, and in exports only inside the optional technical-details section (PSR-6). Needs a small build and a unit test.
+- **Built 2026-11-08:** after every stop the app notice starts with the counts, for example "Recorded 12 steps. 1 screenshot was withheld ... 2 steps have no screenshot. 1 click or key press was missed." Missed inputs come from the hook queue for that session only. Exports show counts only in the technical details.
 
-### PSR-6: Owner decision
+### PSR-6: Built, app not tested
 
 An additional-details section lists the operating system, program and UI elements per step.
 
 - **Steps Recorder:** Fields: Recording Session, Recorded Steps, Operating System, Program, UI Elements.
 - **Evidence:** research/baseline-and-competitors.md section 1, 'Additional details fields'. Q2 (same workflow, own format). A3 names the app rather than the window title, for privacy. No OS or session-details section in core exporters (grep).
 - **Gap:** Not built. It helps IT and helpdesk users (Q5) but adds identifying data to exports (docs/04-privacy-and-security.md). The owner decides whether exports include a technical-details section.
+- **Built 2026-11-08:** export dialog option "A technical details section" (off by default) adds, at the end: recording session start and end, recorded steps, screenshots withheld, steps without a screenshot, Windows version (RtlGetVersion, for example "Windows 11 (build 22631)"), app version, and per step the program and UI element. Window titles, user names and machine names are never included (unit tested).
 
 ### PSR-7: Owner decision
 

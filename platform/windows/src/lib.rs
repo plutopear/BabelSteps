@@ -23,6 +23,7 @@ pub mod hotkeys;
 pub mod indicator;
 mod keys;
 mod monitors;
+pub mod os;
 mod pipeline;
 mod scan;
 pub mod scope;

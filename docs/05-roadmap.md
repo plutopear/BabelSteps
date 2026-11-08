@@ -50,7 +50,7 @@ Done this session:
 Next, in order:
 1. Owner clicks: tray menu Stop, Show and Quit, a double-click on the tray icon, seeing the frame and the retention notice, and the Settings click-through.
 2. Claude can build without the owner: smaller stored images (PSR-1). The window-or-monitor choice (A6, Q13) is built (2026-11-08) and passed its self-test checks on Windows. The opt-in full window title (A3) is built on branch `claude/project-thread-axy1rr` (2026-11-08); its self-test check still needs a run on Windows.
-3. Owner decisions made 2026-11-08, still to build: step times, the typed-text notice and step counts (PSR-2, PSR-3, PSR-5; Q30). A9, PSR-6 and PSR-7 are decided in Q23 and Q25.
+3. Step times, the typed-text notice, step counts and the technical-details option (PSR-2, PSR-3, PSR-5, PSR-6; Q25, Q30) are built on branch `claude/project-thread-164l6e` (2026-11-08): core unit tests pass and the Windows build and tests pass (208 of 208); a real PDF export with the options on and the counts after a live recording are not yet checked. A9 and PSR-7 are decided in Q23 and Q25.
 4. Hardware or machine state: an elevated window (Q17), sleep, lock and resolution change, and a second monitor (Q20).
 
 Live tests:

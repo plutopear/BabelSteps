@@ -254,13 +254,16 @@ fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult
         None => Bundle::create(&crate::commands::default_library(app)?, "Recording", &crate::commands::new_id(), crate::commands::now_ms())?,
     };
     let path = bundle.path().to_path_buf();
-    let recording = match bundle.load() {
+    let mut recording = match bundle.load() {
         Ok(r) => r,
         Err(e) => {
             *current = Some(bundle);
             return Err(e.into());
         }
     };
+    // PSR-3: a new recording starts with the typed-text line; the recorder
+    // saves it with the steps.
+    babelsteps_core::notice::apply_typed_text_notice(&mut recording, keystrokes);
     let (show_border, show_window_titles) = {
         let s = rs.settings.lock().unwrap_or_else(|e| e.into_inner());
         (s.show_capture_border, s.show_window_titles)
@@ -305,8 +308,8 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
     let Some(a) = taken else { return Err(AppError::new(ErrorKind::InvalidArgument, "no recording is running")) };
     let path = a.path.clone();
     let reopen = |app: &AppHandle| keep_current(app, Bundle::open(&path).ok());
-    let bundle = match a.recorder.stop() {
-        Ok((bundle, _report)) => bundle,
+    let (bundle, report) = match a.recorder.stop() {
+        Ok(done) => done,
         Err(e) => {
             // Keep the document open whatever happened to the recorder.
             reopen(app);
@@ -321,8 +324,14 @@ fn stop(app: &AppHandle) -> AppResult<OpenedRecording> {
         }
     };
     let settings = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let notice = apply_retention(&bundle, &mut recording, &settings);
-    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = notice;
+    // PSR-5: the counts are shown after every recording, before any retention notice.
+    let s = &report.status;
+    let mut notice = babelsteps_core::notice::recording_summary(s.steps, s.withheld, s.no_screenshot, report.missed_inputs);
+    if let Some(more) = apply_retention(&bundle, &mut recording, &settings) {
+        notice.push(' ');
+        notice.push_str(&more);
+    }
+    *app.state::<RecState>().notice.lock().unwrap_or_else(|e| e.into_inner()) = Some(notice);
     let path = bundle.path().to_string_lossy().into_owned();
     keep_current(app, Some(bundle));
     Ok(OpenedRecording { path, recording })

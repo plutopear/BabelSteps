@@ -73,6 +73,14 @@ export interface OpenedRecording {
   recording: Recording;
 }
 
+/** Export options (PSR-2, PSR-6). Both are off by default. */
+export interface ExportChoices {
+  stepTimes: boolean;
+  technicalDetails: boolean;
+  /** Minutes east of UTC when the recording was made. */
+  utcOffsetMinutes: number;
+}
+
 export interface ExportSummary {
   steps: number;
   imagesWritten: number;
