@@ -102,8 +102,8 @@ Security and dependency checks (`.github/workflows/security.yml`, `codeql.yml`, 
 | cargo-deny | Rust crates with published vulnerabilities, licences outside the allow list, banned networking crates (a second, independent no-network check), crates from anywhere but crates.io | Every pull request, push to `main`, and weekly |
 | npm audit | High or critical vulnerabilities in the frontend's packages | Same |
 | gitleaks | Passwords, tokens and keys committed anywhere in the history | Same |
-| Dependabot | Opens weekly pull requests for Rust and npm updates, monthly for Actions. CI must pass before merging, so an update that adds network code is caught | Weekly |
-| CodeQL, dependency review | Code-level security bugs in Rust, TypeScript and the workflows; vulnerable or badly licensed dependencies added by a pull request | Only while the repository is public (free there, paid on private) |
+| Dependabot | Opens pull requests for Rust (Mondays) and npm (Tuesdays) updates, at most 3 open at a time per ecosystem, and monthly for Actions. TypeScript major updates are ignored until svelte-check supports TypeScript 7. CI must pass before merging, so an update that adds network code is caught | Weekly |
+| CodeQL, dependency review | Code-level security bugs in Rust, TypeScript and the workflows; vulnerable or badly licensed dependencies added by a pull request | Only while the repository is public (free there, paid on private). CodeQL skips pull requests that change only lock files or notes, and runs on `main` are never cancelled |
 
 Ignored advisories are listed in `deny.toml` with a reason and must be removed when the fix lands.
 
@@ -111,4 +111,4 @@ Not covered yet:
 
 - **Windows capture at runtime.** Hooks, screen capture and UI Automation need a real desktop, so no automatic runtime socket test covers them. The source scan and dependency check still apply to that code.
 - **WebView2's own processes.** The window is drawn by Microsoft's WebView2, which runs in separate processes that the app does not control. The content security policy stops our page from reaching the network; it does not govern what WebView2 itself does.
-- **Blocking a release.** Checks run on every pull request, but GitHub only lets a failed check block merging on a private repository with a paid plan. The repository went public on 2026-11-08, so `main` can now require the checks to pass; until that rule is switched on, a red check is a warning that a person must respect.
+- **Blocking a release.** Checks run on every pull request, but GitHub only lets a failed check block merging on a private repository with a paid plan. The repository went public on 2026-11-08. Another thread reports that the `main` ruleset now requires the Windows, Linux and Rust dependencies checks and that the repository rejects Actions not pinned to a commit SHA; the SHA pinning is visible in the workflow files, the ruleset itself was not checked from here.
