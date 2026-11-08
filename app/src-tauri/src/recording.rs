@@ -7,9 +7,10 @@
 
 use crate::commands::{lock_current, AppState, OpenedRecording};
 use crate::error::{AppError, AppResult, ErrorKind};
-use babelsteps_core::settings::Settings;
+use babelsteps_core::settings::{HotkeySettings, Settings};
 use babelsteps_core::storage::Bundle;
 use babelsteps_windows::hotkeys::{self, Hotkey};
+use babelsteps_windows::indicator::Indicator;
 use babelsteps_windows::{Recorder, RecorderConfig};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -21,13 +22,19 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, State};
 
-/// Q14 defaults: Ctrl+Alt+Shift+R start/stop, P pause, N add note, X panic stop.
-const HOTKEYS: [(&str, char); 4] = [("Start or stop recording", 'R'), ("Pause or resume", 'P'), ("Add a note", 'N'), ("Stop now", 'X')];
+/// The four hotkeys from the settings (Q14 defaults: Ctrl+Alt+Shift+R/P/N/X), in action order.
+fn current_hotkeys(app: &AppHandle) -> [babelsteps_core::settings::HotkeySpec; 4] {
+    let settings = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    settings.hotkeys.parse().unwrap_or_else(|_| HotkeySettings::default().parse().expect("defaults are valid"))
+}
 
 pub struct Active {
     recorder: Recorder,
     path: PathBuf,
     keystrokes: bool,
+    /// C2 frame on each screen; None if hidden by setting or it could not be shown.
+    cue: Option<Indicator>,
+    cue_warning: Option<String>,
 }
 
 #[derive(Default)]
@@ -40,6 +47,8 @@ pub struct RecState {
     editor_unsaved: AtomicBool,
     start_requests: AtomicU64,
     hotkeys_ok: Mutex<Vec<bool>>,
+    /// Keeps the hotkey thread alive; replaced when the shortcuts change.
+    hotkey_handle: Mutex<Option<hotkeys::Hotkeys>>,
     tray: Mutex<Option<TrayIcon>>,
     /// Loaded at start-up; changed by `save_settings`.
     pub(crate) settings: Mutex<Settings>,
@@ -91,12 +100,12 @@ pub struct RecordingStatus {
 fn status_of(app: &AppHandle) -> RecordingStatus {
     let rs = app.state::<RecState>();
     let ok = rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let hotkeys = HOTKEYS
+    let hotkeys = current_hotkeys(app)
         .iter()
         .enumerate()
-        .map(|(i, (action, key))| HotkeyInfo {
-            action: action.to_string(),
-            keys: format!("Ctrl+Alt+Shift+{key}"),
+        .map(|(i, spec)| HotkeyInfo {
+            action: HotkeySettings::ACTIONS[i].to_string(),
+            keys: spec.label(),
             registered: ok.get(i).copied().unwrap_or(false),
         })
         .collect();
@@ -123,6 +132,7 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         st.steps = s.steps;
         st.withheld = s.withheld;
         st.warnings = s.warnings;
+        st.warnings.extend(a.cue_warning.clone());
     }
     st
 }
@@ -148,7 +158,8 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
             return Err(e.into());
         }
     };
-    let ignore_keys = HOTKEYS.iter().map(|(_, k)| Hotkey::ctrl_alt_shift(*k)).collect();
+    let show_border = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).show_capture_border;
+    let ignore_keys = current_hotkeys(app).iter().map(Hotkey::from_spec).collect();
     let config = RecorderConfig {
         keystrokes_enabled: keystrokes,
         ignore_keys,
@@ -160,7 +171,15 @@ fn start(app: &AppHandle, keystrokes: bool) -> AppResult<()> {
     };
     match Recorder::start(bundle, recording, config) {
         Ok(recorder) => {
-            *active = Some(Active { recorder, path, keystrokes });
+            let (cue, cue_warning) = if show_border {
+                match Indicator::start() {
+                    Ok(c) => (Some(c), None),
+                    Err(e) => (None, Some(format!("The recording frame around the screen is not shown: {e}."))),
+                }
+            } else {
+                (None, None)
+            };
+            *active = Some(Active { recorder, path, keystrokes, cue, cue_warning });
             Ok(())
         }
         Err(e) => {
@@ -346,16 +365,23 @@ pub async fn stop_recording(app: AppHandle) -> AppResult<OpenedRecording> {
 
 // ---- hotkeys and tray ----------------------------------------------------------
 
-/// Register the global hotkeys and act on them for the life of the app.
+/// Register the global hotkeys from the settings and act on them. Called at
+/// start-up and again when the shortcuts change; the old registration ends first.
 pub fn setup_hotkeys(app: &AppHandle) {
-    let keys: Vec<Hotkey> = HOTKEYS.iter().map(|(_, k)| Hotkey::ctrl_alt_shift(*k)).collect();
-    let Ok((handle, pressed, ok)) = hotkeys::register(&keys) else { return };
-    *app.state::<RecState>().hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = ok;
+    let rs = app.state::<RecState>();
+    // Dropping the old handle unregisters its keys and ends its action thread.
+    drop(rs.hotkey_handle.lock().unwrap_or_else(|e| e.into_inner()).take());
+    let keys: Vec<Hotkey> = current_hotkeys(app).iter().map(Hotkey::from_spec).collect();
+    let Ok((handle, pressed, ok)) = hotkeys::register(&keys) else {
+        *rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = Vec::new();
+        return;
+    };
+    *rs.hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()) = ok;
+    *rs.hotkey_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
     let app = app.clone();
     std::thread::Builder::new()
         .name("hotkey-actions".into())
         .spawn(move || {
-            let _keep = handle; // Unregistered when this thread ends with the app.
             for index in pressed {
                 match index {
                     0 => {
@@ -471,6 +497,11 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     continue;
                 }
                 last = Some(look);
+                if let Some(a) = lock_active(&app.state::<RecState>()).as_ref() {
+                    if let Some(c) = &a.cue {
+                        c.set_paused(matches!(look, TrayLook::Paused { .. }));
+                    }
+                }
                 let (icon, tip) = match look {
                     TrayLook::Idle => (dot([128, 128, 128]), "BabelSteps: not recording".to_string()),
                     TrayLook::Paused { keystrokes } => (
@@ -524,11 +555,45 @@ pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+/// Saves and applies. Returns warnings to show: shortcuts another app already
+/// uses, and shortcuts likely to clash with other programs.
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<()> {
+pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<Vec<String>> {
     settings.validate().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
+    let mut settings = settings;
+    let hotkeys_changed;
+    settings.hotkeys = settings.hotkeys.normalized().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
+    let rs = app.state::<RecState>();
     let path = settings_path(&app)?;
-    settings.save(&path).map_err(|e| AppError::new(ErrorKind::Storage, format!("settings were not saved: {e}")))?;
-    *app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
-    Ok(())
+    {
+        // `start` holds this lock while it reads the shortcuts, so a recording
+        // cannot begin between the check and the change.
+        let active = lock_active(&rs);
+        let old = rs.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        hotkeys_changed = old.hotkeys != settings.hotkeys;
+        // The running recorder ignores the old shortcuts; change them between recordings.
+        if active.is_some() && hotkeys_changed {
+            return Err(busy_error());
+        }
+        settings.save(&path).map_err(|e| AppError::new(ErrorKind::Storage, format!("settings were not saved: {e}")))?;
+        *rs.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    }
+    if hotkeys_changed {
+        setup_hotkeys(&app);
+    }
+    Ok(hotkey_warnings(&app))
+}
+
+fn hotkey_warnings(app: &AppHandle) -> Vec<String> {
+    let ok = app.state::<RecState>().hotkeys_ok.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut out = Vec::new();
+    for (i, spec) in current_hotkeys(app).iter().enumerate() {
+        let action = HotkeySettings::ACTIONS[i];
+        if !ok.get(i).copied().unwrap_or(false) {
+            out.push(format!("{} for \"{action}\" is already used by Windows or another app, so it will not work. Pick another shortcut.", spec.label()));
+        } else if spec.is_weak() {
+            out.push(format!("{} for \"{action}\" has fewer than three modifier keys and may clash with browsers or other apps.", spec.label()));
+        }
+    }
+    out
 }

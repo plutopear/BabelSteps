@@ -20,6 +20,7 @@ mod clock;
 mod frame;
 mod hooks;
 pub mod hotkeys;
+pub mod indicator;
 mod keys;
 mod monitors;
 mod pipeline;

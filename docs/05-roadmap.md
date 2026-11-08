@@ -30,7 +30,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 2. Real apps: Edge password fields pass (2026-11-07, 27/27, `browser-selftest`; plain and sign-in forms, "show password" button). Chrome and Firefox not installed; the owner chose Edge only. Still to do: an elevated window (Q17).
 3. Sleep, lock, resolution change; multiple monitors if the owner has a second one.
 4. The Steps Recorder parity checklist, item by item (the M1 exit).
-Not built yet: the visual cue on the capture target (C2), retention settings (A8), the single-file output decision (A9, Q2), remappable hotkeys (C3).
+Built 2026-11-08 on branch `m1-retention-cue-hotkeys`, NOT live-tested: retention settings (A8), the screen frame (C2), remappable hotkeys (C3). Needs live checks: the frame never appears in saved screenshots (Graphics Capture and the BitBlt fallback), clicks near screen edges still record, new hotkeys are left out of steps. Not built yet: the single-file output decision (A9, Q2).
 
 **Status (2026-11-07, end of session, paused by the owner):** all work is merged into `main` and pushed to GitHub. Done this session: the tray test and the tray-click fix; Edge password fields (27/27, `browser-selftest`). Resume with step 2's elevated window (Q17), then steps 3 and 4. Open, unverified: Edge's save-password prompt and whether the "show password" button took effect (`research/m1-results.md`); the narrowed "BabelSteps:" tray-name check has not been retested live. Both self-tests need the owner's OK for each run.
 

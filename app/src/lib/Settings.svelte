@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, describeError } from "./api";
+  import { api, describeError, toAppError } from "./api";
   import { say } from "./announce.svelte";
   import Modal from "./Modal.svelte";
 
@@ -9,6 +9,29 @@
   let limit = $state(false);
   let keep = $state(100);
   let sizeMb = $state(500);
+  let border = $state(true);
+  const DEFAULT_KEYS = { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" };
+  let keys = $state({ ...DEFAULT_KEYS });
+  let warnings = $state<string[]>([]);
+  let savedOk = $state(false);
+  const ACTIONS: [keyof typeof DEFAULT_KEYS, string][] = [
+    ["startStop", "Start or stop recording"],
+    ["pause", "Pause or resume"],
+    ["note", "Add a note"],
+    ["stop", "Stop now (always stops and saves)"],
+  ];
+
+  /** Press the shortcut in the box to fill it in. Typing the text by hand also works. */
+  function capture(e: KeyboardEvent, k: keyof typeof DEFAULT_KEYS) {
+    if (!(e.ctrlKey || e.altKey || e.metaKey)) return;
+    let key = "";
+    if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+    else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+    else if (/^F([1-9]|1[0-2])$/.test(e.code)) key = e.code;
+    if (!key) return;
+    e.preventDefault();
+    keys[k] = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win", key].filter(Boolean).join("+");
+  }
   let error = $state("");
   let saving = $state(false);
 
@@ -17,6 +40,8 @@
       limit = s.keepScreenshots !== null;
       keep = s.keepScreenshots ?? 100;
       sizeMb = s.sizeWarningMb;
+      border = s.showCaptureBorder;
+      keys = { ...s.hotkeys };
       loaded = true;
     },
     (e) => (error = describeError(e, "reading your settings")),
@@ -35,11 +60,19 @@
     }
     saving = true;
     try {
-      await api.saveSettings({ keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb });
+      warnings = await api.saveSettings({
+        keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys },
+      });
       say("Settings saved.");
-      onclose();
+      if (warnings.length === 0) onclose();
+      else savedOk = true;
     } catch (e) {
-      error = describeError(e, "saving your settings");
+      const ae = toAppError(e);
+      error = ae.kind === "invalid_argument" && ae.message
+        ? `${ae.message}.`
+        : ae.kind === "busy"
+          ? "Stop the recording before changing shortcuts."
+          : describeError(e, "saving your settings");
     } finally {
       saving = false;
     }
@@ -69,10 +102,45 @@
         </label>
       {/if}
     </fieldset>
+    <fieldset>
+      <legend>Recording indicator</legend>
+      <label class="check">
+        <input type="checkbox" bind:checked={border} disabled={!loaded} />
+        Show a red frame around each screen while recording
+      </label>
+      <p class="hint">
+        The tray icon always shows when recording is on. Turning the frame off hides only the frame.
+        BabelSteps asks Windows to keep the frame out of screenshots.
+      </p>
+    </fieldset>
+    <fieldset>
+      <legend>Shortcuts</legend>
+      {#each ACTIONS as [k, label]}
+        <label>{label}
+          <input type="text" bind:value={keys[k]} onkeydown={(e) => capture(e, k)} autocomplete="off" spellcheck="false" />
+        </label>
+      {/each}
+      <p class="hint">
+        Click a box and press the new shortcut, or type it like Ctrl+Alt+Shift+R. Use Ctrl, Alt or Windows with
+        a letter, number or F1 to F12. Three modifiers avoid clashes with browsers and other apps.
+        Shortcuts change between recordings, not during one.
+      </p>
+      <button type="button" onclick={() => (keys = { ...DEFAULT_KEYS })}>Reset shortcuts to the defaults</button>
+    </fieldset>
+    {#if savedOk}
+      <p class="warn-line" role="status">Settings saved, with warnings:</p>
+      <ul class="warn-line" aria-label="Shortcut warnings">
+        {#each warnings as w}<li>{w}</li>{/each}
+      </ul>
+    {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="actions">
-      <button type="button" onclick={onclose}>Cancel</button>
-      <button type="submit" class="primary" disabled={!loaded || saving}>Save</button>
+      {#if savedOk}
+        <button type="button" class="primary" onclick={onclose}>Close</button>
+      {:else}
+        <button type="button" onclick={onclose}>Cancel</button>
+        <button type="submit" class="primary" disabled={!loaded || saving}>Save</button>
+      {/if}
     </div>
   </form>
 </Modal>

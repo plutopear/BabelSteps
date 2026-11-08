@@ -101,7 +101,7 @@ function recStatus() {
 }
 // Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
 (globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
-let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500 };
+let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" } };
 function busy(): never {
   throw { kind: "busy", message: "" };
 }
@@ -119,7 +119,7 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       const n = (a.settings as typeof settings);
       if (n.keepScreenshots !== null && n.keepScreenshots < 1) throw { kind: "invalid_argument", message: "" };
       settings = structuredClone(n);
-      return;
+      return Object.values(n.hotkeys).filter((k) => k.split("+").length < 4).map((k) => `${k} may clash with browsers or other apps.`);
     }
     case "clear_notice":
       R.notice = null;

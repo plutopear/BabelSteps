@@ -93,7 +93,8 @@ export const api = {
   stopRecording: () => call<OpenedRecording>("stop_recording"),
   clearNotice: () => call<void>("clear_notice"),
   getSettings: () => call<Settings>("get_settings"),
-  saveSettings: (settings: Settings) => call<void>("save_settings", { settings }),
+  /** Saves and applies; returns warnings about shortcuts that clash. */
+  saveSettings: (settings: Settings) => call<string[]>("save_settings", { settings }),
 };
 
 // File pickers go through the dialog plugin's commands (already allowed:

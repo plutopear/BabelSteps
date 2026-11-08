@@ -121,4 +121,6 @@ export interface Settings {
   /** Keep screenshots for the newest N steps when a recording stops; null keeps all. */
   keepScreenshots: number | null;
   sizeWarningMb: number;
+  showCaptureBorder: boolean;
+  hotkeys: { startStop: string; pause: string; note: string; stop: string };
 }
