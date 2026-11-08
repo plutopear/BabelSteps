@@ -46,7 +46,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | A10 | Open and view existing Steps Recorder output (.zip containing one .mht). | Out of scope (M1) |
 | A11 | With keystroke capture off, a typing burst still becomes one step ("Typed in User name field") with no text, ended by a focus change, click or shortcut. | Partial |
 | B4 | Never record password fields as text. | Pass |
-| B12 | Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out. | Partial. Open failure: see the B12 section |
+| B12 | Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out. | Partial. A false alarm on 2026-11-08 is explained in the B12 section |
 | C1 | Entirely local: no network calls, telemetry, accounts or cloud storage. | Partial |
 | C2 | Always-visible recording indicator: a tray icon plus a visible cue (frame) on the capture target, kept out of the screenshots. | Partial |
 | C3 | Global hotkeys for start, pause, add note and stop, remappable with conflict warnings; the panic-stop hotkey always works. Defaults are Ctrl+Alt+Shift+R/P/N/X. | Partial |
@@ -170,7 +170,7 @@ Never record password fields as text.
 
 ### B12: Partial
 
-**Open failure (reported 2026-11-08, not yet root-caused):** the self-test check 'window change: a window minimized by the click never leaves its password field visible' fails on current `main` with 'IMAGE WITH THE FIELD VISIBLE', in 3 of 3 runs on the owner's PC. It passed in earlier runs before the smaller-images change (PSR-1, PR #9), so an interaction with PSR-1 is suspected (a guess). Until it is fixed and the check passes again, treat B12 as failing for the minimized-window case, whatever the rows below say. Another thread is investigating.
+**False alarm, 2026-11-08 (self-test fixed in PR #17):** the check 'window change: a window minimized by the click never leaves its password field visible' failed 3 of 3 runs on the owner's PC with 'IMAGE WITH THE FIELD VISIBLE'. The confirming run showed that the 66 non-black pixels over the hidden field were exactly the recorder's own element outline colour (0,200,0), drawn after the black-out; the check only allowed the red click marker. After the test change, the self-test passes 84 of 84. So B12 is not affected by this. Side finding for A2 (cosmetic, not fixed): when the click minimizes its window, the element is looked up after the window is gone, so the outline can go round a different element.
 
 Black out every password field in any visible window on every step's screenshot before it is saved, and withhold the screenshot if the check fails or times out.
 
