@@ -53,9 +53,6 @@ const SAVE_EVERY: Duration = Duration::from_secs(2);
 /// fields is fresh when a window changes right after an input.
 const REFRESH_EVERY: Duration = Duration::from_secs(5);
 
-/// A crop area that matches nothing: the step gets no screenshot.
-const NO_AREA: Rect = Rect { x: 0, y: 0, w: 0, h: 0 };
-
 pub const NOTE_NO_SCREENSHOT: &str = "Screenshot unavailable.";
 pub const NOTE_NOT_VERIFIED: &str = "This screenshot may show the moment after the action.";
 
@@ -233,7 +230,7 @@ impl Recorder {
             // boxes would miss the password fields.
             bail!("recording needs per-monitor DPI awareness, which this process does not have");
         }
-        scope::validate(&config.scope)?;
+        scope::validate(&config.scope, config.ignore_own_windows)?;
         let faults = Arc::new(Faults::default());
         let status = Arc::new(Mutex::new(RecorderStatus::default()));
         let in_flight = Arc::new(AtomicUsize::new(0));
@@ -406,7 +403,7 @@ fn capture_loop(
     let over_budget = Arc::new(AtomicU64::new(0));
     let over = over_budget.clone();
     let budget = in_flight.clone();
-    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64, crop: Option<Rect>| -> Option<Shot> {
+    let mut grab = move |capturer: &mut Capturer, x: i32, y: i32, t: i64, keep: Option<Vec<Rect>>| -> Option<Shot> {
         let mons = capturer.monitors();
         let bytes = monitors::index_for(mons, x, y).map_or(0, |i| mons[i].w.max(0) as usize * mons[i].h.max(0) as usize * 4);
         if budget.load(Ordering::SeqCst) + bytes > FRAME_BUDGET_BYTES {
@@ -420,8 +417,17 @@ fn capture_loop(
             Ok(Grabbed { frame, before_verified }) => {
                 // One window (A6): cut the frame down before anything else
                 // sees it, so the scan and the writer only get the window.
-                let frame = match crop {
-                    Some(r) => frame.crop(&r)?,
+                let frame = match keep {
+                    Some(areas) => {
+                        // No area (the window vanished): the step has no picture.
+                        let first = *areas.first()?;
+                        let bbox = areas.iter().fold(first, |a, r| a.union(r));
+                        let mut f = frame.crop(&bbox)?;
+                        if areas.len() > 1 {
+                            f.keep_only(&areas);
+                        }
+                        f
+                    }
                     None => frame,
                 };
                 // The windows on screen now, a few ms after the input, which is
@@ -502,7 +508,7 @@ fn handle_raw(
     keys: &mut KeyTracker,
     last_was_text: &mut bool,
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Rect>) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Vec<Rect>>) -> Option<Shot>,
     out: &Sender<Captured>,
 ) {
     match ev {
@@ -519,6 +525,7 @@ fn handle_raw(
                 Scope::Monitor(device) => {
                     let mons = capturer.monitors();
                     if !monitors::index_for(mons, x, y).is_some_and(|i| &mons[i].device_name() == device) {
+                        *last_was_text = false;
                         return; // On another monitor: not recorded.
                     }
                     None
@@ -526,10 +533,10 @@ fn handle_raw(
                 Scope::Window(target) => {
                     let root = root_at(x, y);
                     if !scope::window_in_scope(root, *target) {
+                        *last_was_text = false;
                         return; // On another window: not recorded.
                     }
-                    // No area (the window vanished): the step has no picture.
-                    Some(scope::crop_area(*target, Some(root)).unwrap_or(NO_AREA))
+                    Some(scope::keep_areas(*target, Some(root)))
                 }
             };
             *last_was_text = false;
@@ -570,7 +577,7 @@ fn handle_raw(
                         *last_was_text = false;
                         return; // Typed into another window: not recorded.
                     }
-                    Some(scope::crop_area(*target, Some(fg)).unwrap_or(NO_AREA))
+                    Some(scope::keep_areas(*target, Some(fg)))
                 }
             };
             let shortcut = mods.ctrl || mods.alt || mods.meta;
@@ -604,16 +611,17 @@ fn handle_raw(
 /// The frame for a key press: the monitor holding the foreground window.
 fn grab_focus(
     capturer: &mut Capturer,
-    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Rect>) -> Option<Shot>,
+    grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Vec<Rect>>) -> Option<Shot>,
     t: i64,
-    crop: Option<Rect>,
+    keep: Option<Vec<Rect>>,
 ) -> Option<Shot> {
     let point = focus_point(capturer.monitors())?;
-    grab(capturer, point.0, point.1, t, crop)
+    grab(capturer, point.0, point.1, t, keep)
 }
 
-/// A point on the monitor that holds the foreground window: its centre, or
-/// its top-left clamped onto a monitor when the centre is off-screen.
+/// A point on the monitor that holds the foreground window: its centre, or,
+/// when the centre is off-screen, the centre of its part on the monitor it
+/// overlaps most. `None` if it is on no monitor.
 fn focus_point(monitors: &[monitors::Monitor]) -> Option<(i32, i32)> {
     let mut r = windows::Win32::Foundation::RECT::default();
     let fg = unsafe { GetForegroundWindow() };
@@ -624,10 +632,14 @@ fn focus_point(monitors: &[monitors::Monitor]) -> Option<(i32, i32)> {
     let cy = ((i64::from(r.top) + i64::from(r.bottom)) / 2) as i32;
     let mons: Vec<_> = monitors.iter().copied().filter(|m| m.w > 0 && m.h > 0).collect();
     if monitors::index_for(&mons, cx, cy).is_some() {
-        Some((cx, cy))
-    } else {
-        mons.first().map(|m| (r.left.clamp(m.x, m.x + m.w - 1), r.top.clamp(m.y, m.y + m.h - 1)))
+        return Some((cx, cy));
     }
+    let win = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+    let part = mons
+        .iter()
+        .filter_map(|m| win.intersect(&Rect { x: m.x, y: m.y, w: m.w, h: m.h }))
+        .max_by_key(|p| i64::from(p.w) * i64::from(p.h))?;
+    Some((part.x + part.w / 2, part.y + part.h / 2))
 }
 
 struct KeyScan {

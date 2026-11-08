@@ -4,8 +4,10 @@
 //! Out of scope means not recorded at all: a click elsewhere makes no step and
 //! no screenshot, and keys typed into another window are dropped. With one
 //! window, each screenshot is cut down to that window (plus the menu or dialog
-//! that was clicked) before analysis, so the rest of the screen never reaches
-//! the disk. Windows lying on top of the chosen one still show inside its area.
+//! that was clicked) before analysis, and anything between the two is painted
+//! grey. Windows lying on top of the chosen one still show inside its area,
+//! and the cut uses the window's position when the input is handled, a few
+//! milliseconds after the frame, so a window being dragged can be cut a little off.
 
 use crate::monitors::Monitor;
 use crate::uia::process_name;
@@ -137,8 +139,9 @@ fn window_pid(h: HWND) -> u32 {
 }
 
 /// Refuses a scope that cannot be recorded right now: a window that has
-/// closed or belongs to this app, or a monitor that is no longer connected.
-pub fn validate(scope: &Scope) -> Result<()> {
+/// closed, or a monitor that is no longer connected. With `refuse_own`, also
+/// a window of this process (the app; the self-test records its own window).
+pub fn validate(scope: &Scope, refuse_own: bool) -> Result<()> {
     match scope {
         Scope::Screen => Ok(()),
         Scope::Monitor(device) => {
@@ -153,7 +156,7 @@ pub fn validate(scope: &Scope) -> Result<()> {
             if *id == 0 || !unsafe { IsWindow(Some(h)) }.as_bool() {
                 bail!("that window has closed");
             }
-            if window_pid(h) == unsafe { GetCurrentProcessId() } {
+            if refuse_own && window_pid(h) == unsafe { GetCurrentProcessId() } {
                 bail!("BabelSteps cannot record its own window");
             }
             Ok(())
@@ -174,7 +177,9 @@ pub(crate) fn lost(scope: &Scope, monitors: &[Monitor]) -> Option<&'static str> 
 
 /// Whether a top-level window counts as part of `target`: the window itself,
 /// a window it owns (its dialogs, at any depth), or a pop-up of the same app
-/// without a title bar (its menus, drop-downs and tooltips).
+/// without a title bar (its menus, drop-downs and tooltips). The desktop and
+/// taskbar never count, even when the target is a File Explorer window, which
+/// shares their process.
 pub(crate) fn window_in_scope(root: isize, target: isize) -> bool {
     let (r, t) = (HWND(root as *mut _), HWND(target as *mut _));
     if root == 0 || target == 0 || !unsafe { IsWindow(Some(t)) }.as_bool() {
@@ -195,7 +200,7 @@ pub(crate) fn window_in_scope(root: isize, target: isize) -> bool {
             _ => break,
         }
     }
-    if window_pid(r) != window_pid(t) {
+    if window_pid(r) != window_pid(t) || SHELL_CLASSES.contains(&class_name(r).as_str()) {
         return false;
     }
     let style = unsafe { GetWindowLongPtrW(r, GWL_STYLE) } as u32;
@@ -218,10 +223,15 @@ pub fn window_bounds(hwnd: isize) -> Option<Rect> {
     (!rect.is_empty()).then_some(rect)
 }
 
-/// The area a window-scope screenshot keeps: the chosen window, plus the
-/// in-scope window that was used (a menu can hang past the window's edge).
-pub(crate) fn crop_area(target: isize, used: Option<isize>) -> Option<Rect> {
-    let base = window_bounds(target)?;
-    let extra = used.filter(|&u| u != target && window_in_scope(u, target)).and_then(window_bounds);
-    Some(extra.map_or(base, |e| base.union(&e)))
+/// The areas a window-scope screenshot keeps: the chosen window, plus the
+/// in-scope window that was used (a menu can hang past the window's edge, a
+/// dialog can sit anywhere). The frame is cut to their bounding box and the
+/// rest of that box is painted over.
+pub(crate) fn keep_areas(target: isize, used: Option<isize>) -> Vec<Rect> {
+    let Some(base) = window_bounds(target) else { return Vec::new() };
+    let mut out = vec![base];
+    if let Some(e) = used.filter(|&u| u != target && window_in_scope(u, target)).and_then(window_bounds) {
+        out.push(e);
+    }
+    out
 }

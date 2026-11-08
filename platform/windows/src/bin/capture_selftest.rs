@@ -492,8 +492,19 @@ fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
             }
         }
     }
+    // Checked against the client area from testwin, not the product's own bounds call:
+    // the cut holds all of it and adds at most a title bar and borders.
+    let (cx, cy, cw, ch) = win.client_rect()?;
     let cut = expect.is_some_and(|e| {
-        (e.w < m.w || e.h < m.h) && shots.iter().all(|f| f.width as i32 == e.w && f.height as i32 == e.h)
+        (e.w < m.w || e.h < m.h)
+            && shots.iter().all(|f| {
+                f.width as i32 == e.w
+                    && f.height as i32 == e.h
+                    && f.overlaps(&babelsteps_core::Rect { x: cx, y: cy, w: 1, h: 1 })
+                    && f.overlaps(&babelsteps_core::Rect { x: cx + cw - 1, y: cy + ch - 1, w: 1, h: 1 })
+                    && f.width as i32 <= cw + 40
+                    && f.height as i32 <= ch + 80
+            })
     });
     c.check(
         "one window: clicks in the window are recorded, each screenshot cut to the window",
@@ -513,7 +524,7 @@ fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     c.check("one window: the password field is solid black in every cut screenshot", !shots.is_empty() && black == shots.len(), format!("{black} of {}", shots.len()));
     let user_black = shots.iter().filter(|f| all_black(f, user)).count();
     c.check("one window control: the user name field is not blacked out", !shots.is_empty() && user_black == 0, format!("blacked in {user_black}"));
-    let points = shots.last().map_or(0, |f| ring(f));
+    let points = shots.last().map_or(0, ring);
     c.check("one window: the click marker lands on the click in the cut screenshot", points == 4, format!("{points}/4 ring points red"));
 
     // Control: scoped to another window, the same click is not recorded.
@@ -540,6 +551,20 @@ fn scopes(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
         cl.len() == 1 && dims == Some((m.w as u32, m.h as u32)),
         format!("clicks {}, image {dims:?}, monitor {}x{}", cl.len(), m.w, m.h),
     );
+
+    // Control: scoped to another monitor, the same click is not recorded.
+    match testing::monitors().into_iter().find(|o| o.device != m.device) {
+        Some(o) => {
+            let n = o.device.iter().position(|&ch| ch == 0).unwrap_or(o.device.len());
+            let r = start_scoped(dir, "scope-other-monitor", Scope::Monitor(String::from_utf16_lossy(&o.device[..n])))?;
+            win.safe_click(bx, by)?;
+            ms(500);
+            let (_bundle, report) = stop(r)?;
+            let n = steps(&report.recording).len();
+            c.check("one monitor: a click on another monitor is not recorded", n == 0, format!("steps {n}"));
+        }
+        None => c.info("one monitor: the click-on-another-monitor check was skipped (one monitor)"),
+    }
 
     // A monitor that is not connected: recording refuses to start.
     let refused = start_scoped(dir, "scope-gone", Scope::Monitor(r"\\.\MISSING-DISPLAY".into()));

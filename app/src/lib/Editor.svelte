@@ -199,7 +199,7 @@
     // The chosen window or monitor may be gone: fall back to the whole screen.
     const still =
       targetChoice === "screen" ||
-      targets.monitors.some((m) => "m:" + m.device === targetChoice) ||
+      (targets.monitors.length > 1 && targets.monitors.some((m) => "m:" + m.device === targetChoice)) ||
       targets.windows.some((w) => "w:" + w.id === targetChoice);
     if (!still) targetChoice = "screen";
   }

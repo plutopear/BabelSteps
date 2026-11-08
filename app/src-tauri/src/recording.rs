@@ -236,9 +236,11 @@ fn monitor_label(m: &scope::MonitorChoice) -> String {
 
 fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult<()> {
     let scope = target.scope()?;
-    if let Err(e) = scope::validate(&scope) {
+    if let Err(e) = scope::validate(&scope, true) {
         return Err(AppError::new(ErrorKind::InvalidArgument, format!("{e}")));
     }
+    // Lists windows, so done before taking the recording lock.
+    let info = scope_info(&scope);
     let rs = app.state::<RecState>();
     let mut active = lock_active(&rs);
     if active.is_some() {
@@ -271,7 +273,7 @@ fn start(app: &AppHandle, keystrokes: bool, target: &CaptureTarget) -> AppResult
         scope: scope.clone(),
         ..RecorderConfig::default()
     };
-    let scope = scope_info(&scope);
+    let scope = info;
     match Recorder::start(bundle, recording, config) {
         Ok(recorder) => {
             let (cue, cue_warning) = if show_border {
