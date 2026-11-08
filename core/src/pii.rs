@@ -92,6 +92,10 @@ impl fmt::Display for CustomRuleError {
 
 impl std::error::Error for CustomRuleError {}
 
+/// Compiled-size cap for a user pattern, so one like `(\w{100}){100}` is
+/// refused instead of using lots of memory. Matching time is already linear.
+const CUSTOM_REGEX_SIZE_LIMIT: usize = 1 << 20;
+
 /// The user's own words and regexes. Words match whole words, ignoring case.
 #[derive(Clone, Default)]
 pub struct CustomRules {
@@ -137,12 +141,15 @@ impl CustomRules {
         let words = rules.len();
         for (i, pattern) in regexes.into_iter().enumerate() {
             let pattern = pattern.as_ref();
-            let rule = Regex::new(pattern).map_err(|e| CustomRuleError::InvalidRegex {
-                word: false,
-                index: i + 1,
-                pattern: pattern.to_string(),
-                reason: e.to_string(),
-            })?;
+            let rule = RegexBuilder::new(pattern)
+                .size_limit(CUSTOM_REGEX_SIZE_LIMIT)
+                .build()
+                .map_err(|e| CustomRuleError::InvalidRegex {
+                    word: false,
+                    index: i + 1,
+                    pattern: pattern.to_string(),
+                    reason: e.to_string(),
+                })?;
             rules.push(rule);
         }
         Ok(Self { rules, words })
@@ -670,6 +677,14 @@ mod tests {
             Err(CustomRuleError::InvalidRegex { pattern, .. }) => assert_eq!(pattern, "(unclosed"),
             other => panic!("expected an error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn oversize_custom_regex_is_an_error() {
+        let result = CustomRules::new([] as [&str; 0], [r"(\w{200}){200}"]);
+        assert!(matches!(result, Err(CustomRuleError::InvalidRegex { .. })));
+        // Everyday patterns, including Unicode classes, stay well under the cap.
+        assert!(CustomRules::new([] as [&str; 0], [r"\w+@\w+\.\w+", r"(?i)project-\d{3,6}", r"\b[A-Z]{2}\d{6}\b"]).is_ok());
     }
 
     #[test]

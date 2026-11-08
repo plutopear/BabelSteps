@@ -166,4 +166,8 @@ export interface Settings {
   closeToTray: boolean;
   /** A3: name the full window title in click steps. Off by default for privacy. */
   showWindowTitles: boolean;
+  /** B14: words hidden from typed text (whole word, any case). At most 100, 200 characters each. */
+  customWords: string[];
+  /** B14: regular expressions hidden from typed text. Same limits. */
+  customPatterns: string[];
 }

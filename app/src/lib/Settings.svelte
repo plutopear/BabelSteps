@@ -13,6 +13,13 @@
   let border = $state(true);
   let toTray = $state(false);
   let windowTitles = $state(false);
+  // B14: one word or pattern per line.
+  let wordsText = $state("");
+  let patternsText = $state("");
+  let customError = $state("");
+  let customErrorIn = $state<"word" | "pattern" | null>(null);
+  let wordsEl = $state<HTMLTextAreaElement>();
+  let patternsEl = $state<HTMLTextAreaElement>();
   const DEFAULT_KEYS = { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" };
   let keys = $state({ ...DEFAULT_KEYS });
   let warnings = $state<string[]>([]);
@@ -46,6 +53,8 @@
     keys = { ...s.hotkeys };
     toTray = s.closeToTray;
     windowTitles = s.showWindowTitles;
+    wordsText = (s.customWords ?? []).join("\n");
+    patternsText = (s.customPatterns ?? []).join("\n");
   }
 
   api.getSettings().then(
@@ -55,6 +64,32 @@
     },
     (e) => (error = describeError(e, "reading your settings")),
   );
+
+  /** Non-blank lines, each with its line number, so an error can point at the line you see. */
+  function entries(text: string, trim: boolean): { text: string; line: number }[] {
+    return text
+      .split(/\r?\n/)
+      .map((t, i) => ({ text: trim ? t.trim() : t, line: i + 1 }))
+      .filter((e) => e.text.trim() !== "");
+  }
+
+  /** Turns the app's "custom word 3 is empty" into a message about the line you typed. */
+  function customMessage(message: string, words: { line: number }[], patterns: { line: number }[]): string | null {
+    const m = /^custom (word|pattern) (\d+) (.+)$/.exec(message);
+    if (m) {
+      const list = m[1] === "word" ? words : patterns;
+      const line = list[Number(m[2]) - 1]?.line ?? Number(m[2]);
+      customErrorIn = m[1] as "word" | "pattern";
+      const where = m[1] === "word" ? "Words to hide" : "Patterns to hide";
+      return where + ", line " + line + " " + m[3] + ".";
+    }
+    const many = /^too many custom (word|pattern)s/.exec(message);
+    if (many) {
+      customErrorIn = many[1] as "word" | "pattern";
+      return message[0].toUpperCase() + message.slice(1) + ".";
+    }
+    return null;
+  }
 
   // C7: export and import. One inline message, read out by screen readers
   // (role status or alert inside the dialog) and sent to the live region too.
@@ -113,6 +148,8 @@
   async function save(ev: SubmitEvent) {
     ev.preventDefault();
     error = "";
+    customError = "";
+    customErrorIn = null;
     if (limit && (!Number.isInteger(keep) || keep < 1)) {
       error = "Type a whole number of 1 or more for how many steps keep their screenshots.";
       return;
@@ -121,16 +158,26 @@
       error = "Type a whole number of megabytes (1 or more) for the size warning.";
       return;
     }
+    const words = entries(wordsText, true);
+    const patterns = entries(patternsText, false);
     saving = true;
     try {
       warnings = await api.saveSettings({
         keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys }, closeToTray: toTray, showWindowTitles: windowTitles,
+        customWords: words.map((e) => e.text), customPatterns: patterns.map((e) => e.text),
       });
       say("Settings saved.");
       if (warnings.length === 0) onclose();
       else savedOk = true;
     } catch (e) {
       const ae = toAppError(e);
+      const custom = ae.kind === "invalid_argument" ? customMessage(ae.message, words, patterns) : null;
+      if (custom) {
+        // Announced by the alert next to the lists, and the cursor goes to the list at fault.
+        customError = custom;
+        (customErrorIn === "word" ? wordsEl : patternsEl)?.focus();
+        return;
+      }
       error = ae.kind === "invalid_argument" && ae.message
         ? `${ae.message}.`
         : ae.kind === "busy"
@@ -188,6 +235,38 @@
         often show file names, web page titles and customer names, so check your steps before you share them.
         Applies to the next recording you start.
       </p>
+    </fieldset>
+    <fieldset>
+      <legend>Words and patterns to hide</legend>
+      <p class="hint" id="custom-help">
+        Typed text is checked against these as it is recorded, and a match is replaced with [custom] before
+        anything is saved. This works only when you record typed text. Changes apply to new recordings only,
+        not to ones you already made. Detection can miss things, such as a different spelling or a word split
+        across keystrokes, so review your steps before you share them.
+      </p>
+      <label for="custom-words">Words to hide (one per line)</label>
+      <p class="hint" id="custom-words-hint">
+        Customer names, project names, internal servers. Matches whole words and ignores upper and lower case,
+        so Acme also hides ACME but not Acmeville.
+      </p>
+      <textarea
+        id="custom-words" rows="4" bind:value={wordsText} bind:this={wordsEl} disabled={!loaded}
+        autocomplete="off" spellcheck="false"
+        aria-describedby={"custom-help custom-words-hint" + (customErrorIn === "word" ? " custom-error" : "")}
+        aria-invalid={customErrorIn === "word"}
+      ></textarea>
+      <label for="custom-patterns">Patterns to hide (advanced, one per line)</label>
+      <p class="hint" id="custom-patterns-hint">
+        Regular expressions, for things like ticket numbers: PROJ-[0-9]+ hides PROJ-42. Upper and lower case
+        count as different unless you start with (?i). Up to 100 words and 100 patterns, 200 characters each.
+      </p>
+      <textarea
+        id="custom-patterns" rows="4" bind:value={patternsText} bind:this={patternsEl} disabled={!loaded}
+        autocomplete="off" spellcheck="false"
+        aria-describedby={"custom-help custom-patterns-hint" + (customErrorIn === "pattern" ? " custom-error" : "")}
+        aria-invalid={customErrorIn === "pattern"}
+      ></textarea>
+      {#if customError}<p class="error" id="custom-error" role="alert">{customError}</p>{/if}
     </fieldset>
     <fieldset>
       <legend>Shortcuts</legend>

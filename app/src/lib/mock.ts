@@ -145,7 +145,7 @@ function recStatus() {
 }
 // Dev only: run __mockNote() in the console to simulate the Add-a-note hotkey.
 (globalThis as Record<string, unknown>).__mockNote = () => R.noteRequests++;
-let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false, showWindowTitles: false };
+let settings = { keepScreenshots: null as number | null, sizeWarningMb: 500, showCaptureBorder: true, hotkeys: { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" }, closeToTray: false, showWindowTitles: false, customWords: [] as string[], customPatterns: [] as string[] };
 function busy(): never {
   throw { kind: "busy", message: "" };
 }
@@ -164,6 +164,15 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
     case "save_settings": {
       const n = (a.settings as typeof settings);
       if (n.keepScreenshots !== null && n.keepScreenshots < 1) throw { kind: "invalid_argument", message: "" };
+      // Like the real app, errors give the position and never quote the entry.
+      for (const [list, noun] of [[n.customWords, "word"], [n.customPatterns, "pattern"]] as const) {
+        if (list.length > 100) throw { kind: "invalid_argument", message: `too many custom ${noun}s (at most 100)` };
+        for (const [i, e] of list.entries()) {
+          let bad = e.trim() === "" ? "is empty" : e.length > 200 ? "is longer than 200 characters" : "";
+          if (!bad && noun === "pattern") try { new RegExp(e); } catch { bad = "is not valid"; }
+          if (bad) throw { kind: "invalid_argument", message: `custom ${noun} ${i + 1} ${bad}` };
+        }
+      }
       settings = structuredClone(n);
       return Object.values(n.hotkeys).filter((k) => k.split("+").length < 4).map((k) => `${k} may clash with browsers or other apps.`);
     }

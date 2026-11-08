@@ -91,6 +91,8 @@ impl Settings {
             hotkeys,
             close_to_tray,
             show_window_titles,
+            custom_words,
+            custom_patterns,
         } = self;
         // Machine-specific settings (folder paths and the like) are left out on
         // purpose. There are none today: the recordings folder is not a setting.
@@ -108,6 +110,10 @@ impl Settings {
             },
             "closeToTray": close_to_tray,
             "showWindowTitles": show_window_titles,
+            // The user's own lists travel with the file; they are not
+            // specific to this PC.
+            "customWords": custom_words,
+            "customPatterns": custom_patterns,
         });
         let mut text = serde_json::to_string_pretty(&doc).expect("a JSON value always serializes");
         text.push('\n');
@@ -150,6 +156,10 @@ impl Settings {
         let close_to_tray = as_bool(field(obj, "closeToTray")?, "closeToTray")?;
         let show_window_titles = as_bool(field(obj, "showWindowTitles")?, "showWindowTitles")?;
 
+        // Files exported before the custom lists existed have neither field.
+        let custom_words = string_list(obj, "customWords")?;
+        let custom_patterns = string_list(obj, "customPatterns")?;
+
         let hk = field(obj, "hotkeys")?
             .as_object()
             .ok_or(SettingsError::WrongType {
@@ -182,6 +192,8 @@ impl Settings {
             hotkeys,
             close_to_tray,
             show_window_titles,
+            custom_words,
+            custom_patterns,
         };
         // Shortcuts are canonical by now, so what is left to report is a limit
         // or two actions on one shortcut. Those messages hold no file text.
@@ -199,6 +211,8 @@ impl Settings {
             hotkeys,
             close_to_tray,
             show_window_titles,
+            custom_words,
+            custom_patterns,
         } = imported;
         let mut out = self.clone();
         out.keep_screenshots = keep_screenshots;
@@ -207,6 +221,8 @@ impl Settings {
         out.hotkeys = hotkeys;
         out.close_to_tray = close_to_tray;
         out.show_window_titles = show_window_titles;
+        out.custom_words = custom_words;
+        out.custom_patterns = custom_patterns;
         out
     }
 
@@ -247,6 +263,23 @@ fn field<'a>(obj: &'a Map<String, Value>, name: &'static str) -> Result<&'a Valu
     obj.get(name).ok_or(SettingsError::Missing(name))
 }
 
+/// An optional list of text entries; absent means empty. Wrong types are
+/// errors that name the field, never the value.
+fn string_list(obj: &Map<String, Value>, name: &'static str) -> Result<Vec<String>, SettingsError> {
+    let Some(v) = obj.get(name) else {
+        return Ok(Vec::new());
+    };
+    let wrong = || SettingsError::WrongType {
+        field: name,
+        expected: "a list of text",
+    };
+    v.as_array()
+        .ok_or_else(wrong)?
+        .iter()
+        .map(|e| e.as_str().map(String::from).ok_or_else(wrong))
+        .collect()
+}
+
 fn as_bool(v: &Value, name: &'static str) -> Result<bool, SettingsError> {
     v.as_bool().ok_or(SettingsError::WrongType {
         field: name,
@@ -284,6 +317,8 @@ mod tests {
             },
             close_to_tray: true,
             show_window_titles: true,
+            custom_words: vec!["Acme".into(), "Project Falcon".into()],
+            custom_patterns: vec![r"\bAC-\d{4}\b".into()],
         }
     }
 
@@ -351,7 +386,11 @@ mod tests {
 
     #[test]
     fn export_holds_no_paths() {
-        let text = custom().to_export_json().to_ascii_lowercase();
+        // The user's own word lists are theirs to fill, so leave them empty here.
+        let mut c = custom();
+        c.custom_words.clear();
+        c.custom_patterns.clear();
+        let text = c.to_export_json().to_ascii_lowercase();
         for word in ["folder", "path", "dir", "user", "\\\\", "c:"] {
             assert!(!text.contains(word), "export mentions {word}");
         }
@@ -585,5 +624,25 @@ mod tests {
         assert_eq!(had_limit.privacy_notes(&weaker).len(), 4);
         // Tightening is not reported.
         assert!(weaker.privacy_notes(&base).is_empty());
+    }
+    #[test]
+    fn custom_lists_round_trip_and_bad_ones_are_refused_without_echo() {
+        let c = custom();
+        let back = Settings::from_json_strict(&c.to_export_json()).unwrap();
+        assert_eq!(back.custom_words, c.custom_words);
+        assert_eq!(back.custom_patterns, c.custom_patterns);
+        // Absent fields (older exports) mean empty lists.
+        let mut doc: Value = serde_json::from_str(&Settings::default().to_export_json()).unwrap();
+        doc.as_object_mut().unwrap().remove("customWords");
+        doc.as_object_mut().unwrap().remove("customPatterns");
+        let old = Settings::from_json_strict(&doc.to_string()).unwrap();
+        assert!(old.custom_words.is_empty() && old.custom_patterns.is_empty());
+        // Wrong type, and an invalid pattern: errors never show the text.
+        let wrong =
+            Settings::from_json_strict(&with("customWords", json!([SENTINEL, 5]))).unwrap_err();
+        assert!(!format!("{wrong} {wrong:?}").contains(SENTINEL));
+        let bad = format!("({SENTINEL}");
+        let e = Settings::from_json_strict(&with("customPatterns", json!([bad]))).unwrap_err();
+        assert!(!format!("{e} {e:?}").contains(SENTINEL));
     }
 }
