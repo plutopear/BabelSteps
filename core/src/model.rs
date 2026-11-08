@@ -298,3 +298,98 @@ mod tests {
         assert!(shown[0].contains("rec1"));
     }
 }
+
+impl Recording {
+    /// Retention (A8): keep screenshots only for the newest `keep_last` steps.
+    /// Older steps keep their text but lose the screenshot reference. Returns
+    /// the removed image paths so the caller can delete the files. An image that
+    /// another block still shows is never returned.
+    pub fn apply_retention(&mut self, keep_last: usize) -> Vec<String> {
+        let with_shot: Vec<usize> = self
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| matches!(b, Block::Step(s) if s.screenshot.is_some()))
+            .map(|(i, _)| i)
+            .collect();
+        let drop_count = with_shot.len().saturating_sub(keep_last);
+        let mut removed = Vec::new();
+        for &i in &with_shot[..drop_count] {
+            if let Block::Step(s) = &mut self.blocks[i] {
+                if let Some(p) = s.screenshot.take() {
+                    removed.push(p);
+                }
+            }
+        }
+        // Keep any file that a remaining block still points at.
+        removed.retain(|p| {
+            !self.blocks.iter().any(|b| match b {
+                Block::Step(s) => s.screenshot.as_deref() == Some(p.as_str()),
+                Block::Image { image, .. } => image == p,
+                _ => false,
+            })
+        });
+        removed
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    fn step(id: &str, shot: Option<&str>) -> Block {
+        Block::Step(StepBlock {
+            id: id.into(),
+            action: Action::Comment,
+            title: id.into(),
+            description: String::new(),
+            screenshot: shot.map(String::from),
+            target: None,
+            redactions: vec![],
+            captured_unix_ms: 0,
+            screenshot_withheld: false,
+        })
+    }
+
+    fn shots(r: &Recording) -> Vec<Option<String>> {
+        r.blocks
+            .iter()
+            .filter_map(|b| if let Block::Step(s) = b { Some(s.screenshot.clone()) } else { None })
+            .collect()
+    }
+
+    #[test]
+    fn keeps_only_the_newest_screenshots() {
+        let mut r = Recording::new("r", "t", 0);
+        r.blocks = vec![
+            step("a", Some("images/a.png")),
+            step("b", None),
+            step("c", Some("images/c.png")),
+            step("d", Some("images/d.png")),
+        ];
+        let removed = r.apply_retention(2);
+        assert_eq!(removed, vec!["images/a.png".to_string()]);
+        assert_eq!(shots(&r), vec![None, None, Some("images/c.png".into()), Some("images/d.png".into())]);
+        assert_eq!(r.step_count(), 4);
+    }
+
+    #[test]
+    fn under_the_limit_changes_nothing_and_zero_removes_all() {
+        let mut r = Recording::new("r", "t", 0);
+        r.blocks = vec![step("a", Some("images/a.png"))];
+        assert!(r.apply_retention(5).is_empty());
+        assert_eq!(r.apply_retention(0), vec!["images/a.png".to_string()]);
+    }
+
+    #[test]
+    fn a_shared_image_is_not_removed() {
+        let mut r = Recording::new("r", "t", 0);
+        r.blocks = vec![
+            step("a", Some("images/a.png")),
+            Block::Image { id: "i".into(), image: "images/a.png".into(), caption: String::new() },
+            step("b", Some("images/b.png")),
+        ];
+        assert!(r.apply_retention(1).is_empty());
+        assert_eq!(shots(&r)[0], None);
+    }
+}
