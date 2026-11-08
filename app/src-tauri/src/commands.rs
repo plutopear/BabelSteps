@@ -6,10 +6,14 @@
 
 use crate::error::{AppError, AppResult, ErrorKind};
 use crate::pdf::{export_pdf_with, PdfExportError};
-use babelsteps_core::export::{export_markdown_with as core_export_markdown, validate_image_path, ExportReport};
+use babelsteps_core::export::{
+    export_markdown_with as core_export_markdown, export_single_html_with as core_export_single_html, validate_image_path,
+    ExportReport,
+};
 use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::Recording;
 use babelsteps_core::storage::{delete_bundle, library, Bundle};
+use babelsteps_core::templates::Template;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -95,7 +99,7 @@ pub(crate) fn default_library(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(base.join("BabelSteps"))
 }
 
-fn require_absolute(p: &str, what: &str) -> AppResult<PathBuf> {
+pub(crate) fn require_absolute(p: &str, what: &str) -> AppResult<PathBuf> {
     let path = PathBuf::from(p);
     if p.is_empty() || !path.is_absolute() {
         return Err(AppError::new(ErrorKind::InvalidArgument, format!("{what} must be a full path")));
@@ -162,6 +166,8 @@ pub fn create_recording(
     rec: State<'_, RecState>,
     folder: Option<String>,
     title: String,
+    // Omitted or null means blank, so older callers keep working.
+    template: Option<Template>,
 ) -> AppResult<OpenedRecording> {
     ensure_idle(&rec)?;
     let title = title.trim().to_string();
@@ -173,7 +179,14 @@ pub fn create_recording(
         None => default_library(&app)?,
     };
     let bundle = Bundle::create(&dir, &title, &new_id(), now_ms())?;
-    let recording = bundle.load()?;
+    let mut recording = bundle.load()?;
+    let blocks = template.unwrap_or_default().initial_blocks();
+    if !blocks.is_empty() {
+        // A template is ordinary blocks, saved like any edit. If this fails the
+        // new empty recording stays in the library and the error is shown.
+        recording.blocks = blocks;
+        bundle.save(&recording)?;
+    }
     let path = bundle.path().to_string_lossy().into_owned();
     *lock_current(&state) = Some(bundle);
     Ok(OpenedRecording { path, recording })
@@ -403,4 +416,33 @@ pub fn map_pdf_error(e: PdfExportError) -> AppError {
         ),
         PdfExportError::Io(m) => AppError::new(ErrorKind::Storage, m),
     }
+}
+
+/// Export the saved document as one self-contained `.html` file (B10): the
+/// pictures are embedded with their redactions burned in, and nothing is loaded
+/// from outside the file.
+#[tauri::command]
+pub async fn export_single_html(app: AppHandle, out_path: String, choices: Option<ExportChoices>) -> AppResult<ExportSummary> {
+    let opts = choices.unwrap_or_default().to_options();
+    let out = require_absolute(&out_path, "the HTML path")?;
+    if !out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("html")) {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the file name must end in .html"));
+    }
+    ensure_idle(&app.state::<RecState>())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _busy = state
+            .export_lock
+            .try_lock()
+            .map_err(|_| AppError::new(ErrorKind::Busy, "another export is running"))?;
+        let (rec, dir) = {
+            let guard = lock_current(&state);
+            let bundle = guard.as_ref().ok_or_else(no_recording)?;
+            outside_bundle(bundle, &out)?;
+            (bundle.load()?, bundle.path().to_path_buf())
+        };
+        Ok(core_export_single_html(&rec, &dir, &out, &opts)?.into())
+    })
+    .await
+    .map_err(|e| AppError::new(ErrorKind::Export, format!("export task failed: {e}")))?
 }

@@ -28,6 +28,7 @@ pub fn run() {
             commands::read_screenshot,
             commands::export_markdown,
             commands::export_pdf,
+            commands::export_single_html,
             recording::recording_status,
             recording::set_editor_unsaved,
             recording::start_recording,
@@ -39,6 +40,8 @@ pub fn run() {
             recording::clear_notice,
             recording::get_settings,
             recording::save_settings,
+            recording::export_settings,
+            recording::import_settings,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {

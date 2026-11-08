@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, describeError, toAppError } from "./api";
+  import { api, describeError, pickSettingsOpenPath, pickSettingsSavePath, toAppError } from "./api";
+  import type { Settings as SettingsData } from "./types";
   import { say } from "./announce.svelte";
   import Modal from "./Modal.svelte";
 
@@ -37,19 +38,77 @@
   let error = $state("");
   let saving = $state(false);
 
+  function fill(s: SettingsData) {
+    limit = s.keepScreenshots !== null;
+    keep = s.keepScreenshots ?? 100;
+    sizeMb = s.sizeWarningMb;
+    border = s.showCaptureBorder;
+    keys = { ...s.hotkeys };
+    toTray = s.closeToTray;
+    windowTitles = s.showWindowTitles;
+  }
+
   api.getSettings().then(
     (s) => {
-      limit = s.keepScreenshots !== null;
-      keep = s.keepScreenshots ?? 100;
-      sizeMb = s.sizeWarningMb;
-      border = s.showCaptureBorder;
-      keys = { ...s.hotkeys };
-      toTray = s.closeToTray;
-      windowTitles = s.showWindowTitles;
+      fill(s);
       loaded = true;
     },
     (e) => (error = describeError(e, "reading your settings")),
   );
+
+  // C7: export and import. One inline message, read out by screen readers
+  // (role status or alert inside the dialog) and sent to the live region too.
+  let transferring = $state(false);
+  let transferMsg = $state<{ ok: boolean; text: string } | null>(null);
+
+  function report(ok: boolean, text: string) {
+    transferMsg = { ok, text };
+    say(text);
+  }
+
+  async function exportSettings() {
+    error = "";
+    transferMsg = null;
+    transferring = true;
+    try {
+      const path = await pickSettingsSavePath();
+      if (!path) return;
+      await api.exportSettings(path);
+      report(true, "Settings exported. The file leaves out anything specific to this PC.");
+    } catch (e) {
+      report(false, describeError(e, "exporting your settings"));
+    } finally {
+      transferring = false;
+    }
+  }
+
+  async function importSettings() {
+    error = "";
+    transferMsg = null;
+    transferring = true;
+    try {
+      const path = await pickSettingsOpenPath();
+      if (!path) return;
+      const warn = await api.importSettings(path);
+      fill(await api.getSettings());
+      report(
+        true,
+        "Settings imported and saved." + (warn.length ? " Warnings: " + warn.join(" ") : ""),
+      );
+    } catch (e) {
+      const ae = toAppError(e);
+      report(
+        false,
+        ae.kind === "invalid_argument" && ae.message
+          ? `Nothing was imported. ${ae.message}`
+          : ae.kind === "busy"
+            ? "Stop the recording before importing shortcuts."
+            : "Nothing was imported. " + describeError(e, "importing your settings"),
+      );
+    } finally {
+      transferring = false;
+    }
+  }
 
   async function save(ev: SubmitEvent) {
     ev.preventDefault();
@@ -159,6 +218,26 @@
         uses less memory with its window closed. Double-click the tray icon or choose Show BabelSteps to open it
         again, and Quit BabelSteps in the tray menu to quit.
       </p>
+    </fieldset>
+    <fieldset>
+      <legend>Export and import</legend>
+      <p class="hint">
+        Export saves your saved settings, including the shortcuts, as a file you can keep or copy to another
+        PC. It leaves out anything specific to this PC, such as folders. Import replaces your settings with the
+        file's and saves them right away, after checking them like a normal save. A file that fails the check
+        changes nothing. Changes you have typed in this window and not saved are replaced.
+      </p>
+      <div class="actions">
+        <button type="button" onclick={exportSettings} disabled={!loaded || transferring}>Export settings…</button>
+        <button type="button" onclick={importSettings} disabled={!loaded || transferring}>Import settings…</button>
+      </div>
+      {#if transferMsg}
+        {#if transferMsg.ok}
+          <p role="status">{transferMsg.text}</p>
+        {:else}
+          <p class="error" role="alert">{transferMsg.text}</p>
+        {/if}
+      {/if}
     </fieldset>
     {#if savedOk}
       <p class="warn-line" role="status">Settings saved, with warnings:</p>

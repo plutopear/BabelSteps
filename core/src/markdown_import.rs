@@ -352,6 +352,43 @@ mod tests {
     }
 
     #[test]
+    fn leading_h1_equal_to_title_round_trips() {
+        let mut rec = Recording::new("r", "Reset a password", 0);
+        rec.blocks.push(Block::Heading { id: "b1".into(), level: 1, text: "Reset a password".into() });
+        rec.blocks.push(Block::Heading { id: "b2".into(), level: 2, text: "Before you start".into() });
+        rec.blocks.push(Block::Text { id: "b3".into(), text: "Intro.".into() });
+        let md = to_markdown(&rec);
+        assert_eq!(md.lines().filter(|l| l.starts_with("# ")).count(), 1);
+        let back = from_markdown(&md);
+        // The single H1 is read back as the title (the file cannot say it was
+        // also a block), and the rest of the blocks are unchanged.
+        assert_eq!(back.title, "Reset a password");
+        assert_eq!(kinds(&back), ["heading", "text"]);
+        match &back.blocks[0] {
+            Block::Heading { level, text, .. } => assert_eq!((*level, text.as_str()), (2, "Before you start")),
+            _ => panic!(),
+        }
+        // Exporting again gives the same file.
+        assert_eq!(to_markdown(&back), md);
+    }
+
+    #[test]
+    fn differing_h1_round_trips_as_a_block() {
+        let mut rec = Recording::new("r", "Reset a password", 0);
+        rec.blocks.push(Block::Heading { id: "b1".into(), level: 1, text: "Part one".into() });
+        rec.blocks.push(Block::Text { id: "b2".into(), text: "Intro.".into() });
+        let md = to_markdown(&rec);
+        let back = from_markdown(&md);
+        assert_eq!(back.title, "Reset a password");
+        assert_eq!(kinds(&back), ["heading", "text"]);
+        match &back.blocks[0] {
+            Block::Heading { level, text, .. } => assert_eq!((*level, text.as_str()), (1, "Part one")),
+            _ => panic!(),
+        }
+        assert_eq!(to_markdown(&back), md);
+    }
+
+    #[test]
     fn hostile_text_round_trips() {
         let mut rec = Recording::new("r", "T *_[]<>|* ~ `x`\nsecond line", 0);
         rec.blocks.push(Block::Text { id: "t".into(), text: "1. not a list\n# not a heading\n- x\n> q\n---\n![a](b)".into() });

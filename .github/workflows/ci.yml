@@ -49,6 +49,32 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -File .claude/skills/babelsteps-check/scripts/no-network.ps1
 
+  linux-core-and-ui:
+    name: Linux - core tests and UI type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # The platform-free document code, its golden files and the privacy scans.
+      # The Windows capture code and the app shell are covered by the Windows job.
+      - name: Core and privacy-scan tests
+        run: cargo test -p babelsteps-core -p babelsteps-privacy-checks --locked
+      # Nothing else type-checks the Svelte and TypeScript code.
+      - name: UI type check and build
+        working-directory: app
+        run: |
+          npm ci
+          npm run check
+          npm run build
+
   linux-runtime:
     name: Linux - runtime socket test
     runs-on: ubuntu-latest

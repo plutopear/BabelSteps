@@ -11,6 +11,7 @@ import type {
   Recording,
   Settings,
   RecordingStatus,
+  Template,
 } from "./types";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -76,8 +77,8 @@ export function describeError(e: unknown, doing: string): string {
 export const api = {
   defaultFolder: () => call<string>("get_default_library_folder"),
   list: (folder?: string) => call<LibraryListing>("list_library", { folder: folder ?? null }),
-  create: (title: string, folder?: string) =>
-    call<OpenedRecording>("create_recording", { folder: folder ?? null, title }),
+  create: (title: string, folder?: string, template: Template = "blank") =>
+    call<OpenedRecording>("create_recording", { folder: folder ?? null, title, template }),
   open: (path: string) => call<OpenedRecording>("open_recording", { path }),
   close: () => call<void>("close_recording"),
   save: (recording: Recording) => call<void>("save_recording", { recording }),
@@ -88,6 +89,8 @@ export const api = {
     call<ExportSummary>("export_markdown", { outDir, choices }),
   exportPdf: (outPath: string, headerFooter: boolean, choices: ExportChoices) =>
     call<ExportSummary>("export_pdf", { outPath, headerFooter, choices }),
+  exportSingleHtml: (outPath: string, choices: ExportChoices) =>
+    call<ExportSummary>("export_single_html", { outPath, choices }),
   recordingStatus: () => call<RecordingStatus>("recording_status"),
   setEditorUnsaved: (unsaved: boolean) => call<void>("set_editor_unsaved", { unsaved }),
   startRecording: (keystrokes: boolean, target: CaptureTarget = { kind: "screen" }) =>
@@ -101,19 +104,59 @@ export const api = {
   getSettings: () => call<Settings>("get_settings"),
   /** Saves and applies; returns warnings about shortcuts that clash. */
   saveSettings: (settings: Settings) => call<string[]>("save_settings", { settings }),
+  /** C7: writes the saved settings (not machine-specific ones) to a file. */
+  exportSettings: (path: string) => call<void>("export_settings", { path }),
+  /** C7: reads a settings file and saves it like a normal save; returns the same shortcut warnings. */
+  importSettings: (path: string) => call<string[]>("import_settings", { path }),
 };
 
 // File pickers go through the dialog plugin's commands (already allowed:
 // dialog:allow-open and dialog:allow-save), so no extra JS package is needed.
-export async function pickSavePath(defaultName: string): Promise<string | null> {
+export async function pickSavePath(defaultName: string, kind: "pdf" | "html" = "pdf"): Promise<string | null> {
   if (!inTauri) {
     if (import.meta.env.DEV) return "C:\\Sample\\" + defaultName;
     return null;
   }
   const r = await invoke<string | null>("plugin:dialog|save", {
-    options: { defaultPath: defaultName, filters: [{ name: "PDF document", extensions: ["pdf"] }] },
+    options: {
+      defaultPath: defaultName,
+      filters: [kind === "pdf" ? { name: "PDF document", extensions: ["pdf"] } : { name: "HTML file", extensions: ["html"] }],
+    },
   });
   return r ?? null;
+}
+
+// C7: settings files use the same dialog commands. The backend reads and
+// writes the chosen file; the page never sees its contents.
+export async function pickSettingsSavePath(): Promise<string | null> {
+  if (!inTauri) {
+    if (import.meta.env.DEV) return "C:\\Sample\\babelsteps-settings.json";
+    return null;
+  }
+  const r = await invoke<string | null>("plugin:dialog|save", {
+    options: {
+      defaultPath: "babelsteps-settings.json",
+      title: "Export settings",
+      filters: [{ name: "BabelSteps settings", extensions: ["json"] }],
+    },
+  });
+  return r ?? null;
+}
+
+export async function pickSettingsOpenPath(): Promise<string | null> {
+  if (!inTauri) {
+    if (import.meta.env.DEV) return "C:\\Sample\\babelsteps-settings.json";
+    return null;
+  }
+  const r = await invoke<string | string[] | null>("plugin:dialog|open", {
+    options: {
+      directory: false,
+      multiple: false,
+      title: "Import settings",
+      filters: [{ name: "BabelSteps settings", extensions: ["json"] }],
+    },
+  });
+  return Array.isArray(r) ? (r[0] ?? null) : (r ?? null);
 }
 
 export async function pickFolder(): Promise<string | null> {
