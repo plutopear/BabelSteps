@@ -62,7 +62,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 | PSR-5 | The document states how many steps were recorded and how many were missed or had errors. | Partial |
 | PSR-6 | An additional-details section lists the operating system, program and UI elements per step. | Partial |
 | PSR-7 | Command-line control: start and stop from a script, set the output path and screenshot limit, hide the UI, limit to one process. | Out of scope (M1) |
-| PSR-8 | Clicks in elevated (admin) windows and on UAC prompts: what gets recorded, and whether password detection fails closed when UI Automation is denied. | Not tested |
+| PSR-8 | Clicks in elevated (admin) windows and on UAC prompts: what gets recorded, and whether password detection fails closed when UI Automation is denied. | Partial |
 | PSR-9 | Clicks on the recorder's own controls (window, tray icon, menus, hotkeys) are left out of the recording. | Partial |
 | PSR-10 | Sleep, lock and screen-resolution or scaling changes during a recording: capture recovers with fresh pictures and no wrong 'before the click' labels. | Partial |
 
@@ -313,13 +313,14 @@ Command-line control: start and stop from a script, set the output path and scre
 - **Decided 2026-11-08 (Q25):** no command-line control in M1 or before the first release.
 - **Gap:** None for M1. IT users (Q5) may still expect scripted start and stop later, and /recordpid overlaps with A6's window scope.
 
-### PSR-8: Not tested
+### PSR-8: Partial
 
 Clicks in elevated (admin) windows and on UAC prompts: what gets recorded, and whether password detection fails closed when UI Automation is denied.
 
 - **Steps Recorder:** The manifest sets level="asInvoker" and uiAccess="true" (measured). Actual behavior on elevated windows and UAC prompts is unverified.
 - **Evidence:** docs/06-open-questions.md Q17 (open, 'decide after the M1 test'). research/m0-spike-results.md finding 8 and its untested table ('Elevated windows, UAC prompts: M1 test'). research/m1-results.md 'Not tested' lists elevated windows and UAC. docs/05-roadmap.md M1 step 2: 'Still to do: an elevated window (Q17)'. No code detects elevated targets or the secure desktop (grep for elevat, uiaccess, TokenElevation found nothing in platform/ or app/src-tauri/src).
-- **Gap:** Merged the three elevated/UAC rows. Test: start our test window as admin (the owner approves the UAC prompt) and record clicks and typing in it. Check whether clicks are dropped, unnamed or recorded, and that the screenshot is withheld if UI Automation is denied. Then trigger a UAC prompt mid-recording and check that capture resumes with fresh frames and no stale picture is labeled 'before the click'. Guess: the secure desktop hides everything from hooks and capture. Compare with Steps Recorder. Needs the owner; the result feeds the owner's Q17 decision on uiAccess and code signing.
+- **Live tests with the owner, 2026-11-08 (`research/m1-results.md` 'Admin windows and UAC'):** with the recorder running as a normal user, no click in an elevated window was recorded at all (the new `elevated-check` tool, an elevated copy of our test window with a password box: 0 of the owner's 6 clicks made a step; a normal-window control recorded all 6 with the box black). So nothing from an admin window can be saved, and the question 'does password detection fail closed there' does not arise for a normal-user recorder. Hooks stayed alive across UAC prompts but were reinstalled 7 to 8 times in a minute. The UAC prompt itself runs on the secure desktop; the recorder cannot see clicks on it (expected). Whether Steps Recorder records admin windows is still unmeasured. The owner decides what to do about it (Q17): skip and warn (recommended), skip and warn plus a run-as-admin option, or code signing for UI access.
+- **Gap (still open):** the Q17 decision, and any warning in the panel when an admin window is in front (not built). Original gap text: merged the three elevated/UAC rows. Test: start our test window as admin (the owner approves the UAC prompt) and record clicks and typing in it. Check whether clicks are dropped, unnamed or recorded, and that the screenshot is withheld if UI Automation is denied. Then trigger a UAC prompt mid-recording and check that capture resumes with fresh frames and no stale picture is labeled 'before the click'. Guess: the secure desktop hides everything from hooks and capture. Compare with Steps Recorder. Needs the owner; the result feeds the owner's Q17 decision on uiAccess and code signing.
 
 ### PSR-9: Partial
 
