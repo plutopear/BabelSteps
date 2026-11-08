@@ -55,6 +55,8 @@
 
   function stopped(o: OpenedRecording) {
     rs.status = { ...rs.status, active: false, paused: false };
+    // Pick up the stop notice (retention, size warning) now, not at the next poll.
+    refreshStatus();
     show(o);
     say("Recording saved. Showing the new steps.");
   }

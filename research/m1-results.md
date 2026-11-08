@@ -139,3 +139,29 @@ Release build, one monitor at 100% scaling, our own test window, synthetic input
 Timings: analysis per event mean 66 ms, max 71 ms (normal); hook callback mean 1.7 us, max 9.2 us.
 
 **Not covered:** real apps (Chromium panes and documents, tab items, taskbar buttons; see the known gap in docs/04 section 2), middle clicks, unnamed controls other than the window, multiple monitors and other scaling.
+
+## 2026-11-08: live test of the real app, 21 of 22 pass
+
+Release exe built with `--features custom-protocol`, including the window-title fix. Owner's desktop with their agreement, one monitor, keystroke capture off. The harness (`.claude/skills/capture-selftest/scripts/live-app-test.ps1`) clicked the app's buttons inside the page through a local WebView2 debugging port. It sent real clicks only to its own small test window, and shortcut keys only when BabelSteps held them. Settings were backed up and restored, and the test recording was deleted without viewing its images. The first attempt stopped at a harness bug before recording anything; the second run is reported here.
+
+| Check | Result |
+| --- | --- |
+| Settings: keep 2 screenshots, start on Ctrl+Alt+Shift+F9; saved to disk | Pass |
+| The new start shortcut is held at once; the old one is released | Pass (checked by trying to register each) |
+| Create a recording; record dialog has keystrokes off; start from the UI | Pass |
+| Pause button and pause shortcut pause and resume; clicks while paused not recorded | Pass (5 steps for 4 unpaused clicks + 1 note) |
+| Note from the panel becomes a step; note shortcut focuses the note box | Pass |
+| Stop button stops and returns to the editor | Pass |
+| Retention notice after the stop | **Fail in the harness:** checked immediately, while the screen updates its status only every 1.5 s. Retention itself worked (2 of 6 steps kept images). Since fixed: the screen now refreshes when a stop finishes. Not yet confirmed live |
+| Remapped shortcut starts a recording; stop-now shortcut stops it | Pass |
+| Reset shortcuts: defaults held again, F9 released | Pass |
+| On disk: 6 steps, 2 images, 0 unreferenced, 0 missing; the test window's title in no step | Pass |
+| Settings restored; nothing left running | Pass |
+
+**Measurements** (fast desktop PC, one monitor, debug port on; label: single samples):
+- Launch to the Library screen: 0.65 s (D3 target: under 1 s to the tray; this measures the window, not the tray).
+- Idle, window open, after 10 s: private memory 147 MB across 6 processes, of which the app process is 6 MB and WebView2 the rest; CPU 1.2% of one core. **D1 (under 50 MB idle) is not met with the window open.** Not measured: idle with the window closed to the tray.
+- Recording, no activity: private memory 345 MB in total, app process 151 MB (frame history on a 5120x1440 screen); CPU 0.6% of one core. D7 (under 250 MB) is met by the app process and not by the total.
+- Sockets while recording: none, except the test's own debugging listener.
+
+**Not tested:** stop from the tray menu (needs a real click on the taskbar), the size-warning notice, keystroke capture on, long sessions.

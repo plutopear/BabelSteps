@@ -6,6 +6,8 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Where it stands (2026-11-08):** Pass 1, Partial 18, Not tested 5, Not built 4, Owner decision 3, Out of scope (M1) 1 (of 32). M1 is not ready to exit. Most partial items close with one owner-approved live run of the current release app; the rest need building, hardware the owner may not have (a second monitor), or an owner decision.
 
+**Live app run, 2026-11-08 (21 of 22, `research/m1-results.md`):** start from the UI, the pause button and shortcut, a note from the panel and the note shortcut, the stop button, a remapped start shortcut, stop-now, resetting shortcuts, retention on disk, and sockets while recording all passed on the current build. That evidence supersedes the 2026-11-07 run for A1, A4, A5, C3 and A8. Still open from it: the retention notice on screen (fixed, not yet confirmed live), stopping from the tray, and D1 (147 MB idle with the window open, against a 50 MB target).
+
 ## Next actions, by who must act
 
 **One owner-approved live run of the current release app** (closes or advances A1, A4, A5, C2, C3, C4, PSR-9; start and stop from the panel, the tray and hotkeys; a note from the panel; settings changed and saved). Measure D1 and D3 in the same run.

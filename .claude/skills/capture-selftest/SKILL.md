@@ -38,3 +38,7 @@ Use the `record` mode only with the owner's agreement. It records their real cli
 ## Browser password fields
 
 `target/release/browser-selftest.exe "<path to msedge.exe or chrome.exe>"` (build with `cargo build --release -p babelsteps-windows --features selftest --bins`). It opens our own test page in the browser with a throwaway profile, takes focus for about 45 seconds, and records the whole screen. The same rules apply: warn the owner and get their OK for each run, and don't view anything except the page crops it keeps in `target/browser-selftest/`.
+
+## Live test of the real app
+
+`scripts/live-app-test.ps1` runs the release app (`target\app-release\release`, built with `--features custom-protocol`) for about two minutes. It drives the app's own buttons through a local WebView2 debugging port, not with the mouse. It sends real clicks only to its own small test window, and sends shortcut keys only when BabelSteps holds them. It covers: start from the UI, pause and note (button and shortcut), stop button and retention notice, a remapped start shortcut, stop-now, resetting shortcuts, memory and CPU, sockets while recording, and images on disk. It saves your settings first and restores them afterwards, and it deletes its test recording. The recording includes the owner's whole screen and any real clicks they make, so get their OK for each run and do not view its images.
