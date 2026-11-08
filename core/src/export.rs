@@ -7,9 +7,10 @@
 //! half-finished folder behind (apart from an empty output folder).
 
 use crate::html::to_html;
-use crate::image_export::{prepare_image, PRINT_MAX_WIDTH};
+use crate::image_export::{prepare_image, prepare_print_image, PRINT_MAX_WIDTH};
 use crate::markdown::to_markdown;
 use crate::model::{Block, Recording, Rect};
+use crate::screenshot::ShotFormat;
 use crate::storage::is_reserved_device_name;
 use std::collections::HashMap;
 use std::fmt;
@@ -106,9 +107,21 @@ pub fn validate_image_path(p: &str) -> bool {
 struct Prepared {
     files: Vec<(String, Vec<u8>)>,
     report: ExportReport,
+    /// Print exports only: source image path to the exported one.
+    renamed: HashMap<String, String>,
 }
 
-fn prepare_all(rec: &Recording, source_dir: &Path, max_width: Option<u32>) -> Result<Prepared, ExportError> {
+/// Markdown keeps each image full size and in its own format. Print (HTML and
+/// PDF) shrinks images to [`PRINT_MAX_WIDTH`] and stores each as the smaller of
+/// PNG and JPEG, under new names (`images/print-0001.jpg`), so the format can
+/// change without two outputs colliding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Output {
+    Markdown,
+    Print,
+}
+
+fn prepare_all(rec: &Recording, source_dir: &Path, output: Output) -> Result<Prepared, ExportError> {
     let root = std::fs::canonicalize(source_dir).map_err(|e| ExportError::Io(format!("recording folder: {e}")))?;
     let mut report = ExportReport::default();
     let mut jobs: Vec<Job> = Vec::new();
@@ -164,11 +177,44 @@ fn prepare_all(rec: &Recording, source_dir: &Path, max_width: Option<u32>) -> Re
     }
 
     let mut files = Vec::with_capacity(jobs.len());
-    for (job, prepared) in jobs.iter().zip(prepare_parallel(&jobs, max_width)) {
-        files.push((job.path.clone(), prepared?));
+    let mut renamed = HashMap::new();
+    for (i, (job, prepared)) in jobs.iter().zip(prepare_parallel(&jobs, output)).enumerate() {
+        let (format, bytes) = prepared?;
+        let rel = match (output, format) {
+            (Output::Print, Some(f)) => {
+                let rel = format!("images/print-{:04}.{}", i + 1, f.extension());
+                renamed.insert(job.path.clone(), rel.clone());
+                rel
+            }
+            _ => job.path.clone(),
+        };
+        files.push((rel, bytes));
     }
     report.images_written = files.len();
-    Ok(Prepared { files, report })
+    Ok(Prepared { files, report, renamed })
+}
+
+/// A copy of `rec` whose image references point at the renamed export files.
+/// Paths that were not exported (withheld steps) are left as they are; the
+/// HTML writer never shows those.
+fn with_renamed_images(rec: &Recording, renamed: &HashMap<String, String>) -> Recording {
+    let mut out = rec.clone();
+    for block in &mut out.blocks {
+        match block {
+            Block::Step(s) => {
+                if let Some(new) = s.screenshot.as_ref().and_then(|p| renamed.get(p)) {
+                    s.screenshot = Some(new.clone());
+                }
+            }
+            Block::Image { image, .. } => {
+                if let Some(new) = renamed.get(image.as_str()) {
+                    *image = new.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// An image that passed every path check, waiting to be read and prepared.
@@ -179,7 +225,10 @@ struct Job {
     redactions: Vec<Rect>,
 }
 
-fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
+/// The prepared bytes, and for print exports the format they were encoded in.
+type PreparedImage = (Option<ShotFormat>, Vec<u8>);
+
+fn prepare_one(job: &Job, output: Output) -> Result<PreparedImage, ExportError> {
     let owner = &job.owner;
     let bytes = std::fs::read(&job.full).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -188,7 +237,11 @@ fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError
             ExportError::Io(format!("{owner}: {e}"))
         }
     })?;
-    prepare_image(&bytes, &job.redactions, max_width).map_err(|e| match e {
+    let prepared = match output {
+        Output::Markdown => prepare_image(&bytes, &job.redactions, None).map(|b| (None, b)),
+        Output::Print => prepare_print_image(&bytes, &job.redactions, Some(PRINT_MAX_WIDTH)).map(|(f, b)| (Some(f), b)),
+    };
+    prepared.map_err(|e| match e {
         ExportError::Image(m) => ExportError::Image(format!("{owner}: {m}")),
         other => other,
     })
@@ -198,21 +251,21 @@ fn prepare_one(job: &Job, max_width: Option<u32>) -> Result<Vec<u8>, ExportError
 /// so images are prepared on a few threads. Capped at 8: each one holds a
 /// decoded full-size image (about 30 MB at 5120x1440). Results keep job order,
 /// so the first error reported is the first in the document.
-fn prepare_parallel(jobs: &[Job], max_width: Option<u32>) -> Vec<Result<Vec<u8>, ExportError>> {
+fn prepare_parallel(jobs: &[Job], output: Output) -> Vec<Result<PreparedImage, ExportError>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8).min(jobs.len());
     if threads <= 1 {
-        return jobs.iter().map(|j| prepare_one(j, max_width)).collect();
+        return jobs.iter().map(|j| prepare_one(j, output)).collect();
     }
     let next = AtomicUsize::new(0);
-    let results: Mutex<Vec<Option<Result<Vec<u8>, ExportError>>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
+    let results: Mutex<Vec<Option<Result<PreparedImage, ExportError>>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
     std::thread::scope(|s| {
         for _ in 0..threads {
             s.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(job) = jobs.get(i) else { break };
-                let r = prepare_one(job, max_width);
+                let r = prepare_one(job, output);
                 results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
             });
         }
@@ -253,18 +306,19 @@ fn write_bundle(out_dir: &Path, doc_name: &str, doc: &str, files: &[(String, Vec
 /// Write `document.md` and `images/` into `out_dir`.
 pub fn export_markdown(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
-    let p = prepare_all(rec, source_dir, None)?;
+    let p = prepare_all(rec, source_dir, Output::Markdown)?;
     write_bundle(out_dir, "document.md", &to_markdown(rec), &p.files)?;
     Ok(p.report)
 }
 
 /// Write `document.html` and `images/` into `out_dir`, ready for a webview to
 /// print (PDF) or to keep as an HTML export. Images wider than
-/// [`PRINT_MAX_WIDTH`] are scaled down; Markdown exports keep full size.
+/// [`PRINT_MAX_WIDTH`] are scaled down and stored as the smaller of PNG and
+/// JPEG under new names (see [`Output`]); Markdown exports keep full size.
 pub fn prepare_html_export(rec: &Recording, source_dir: &Path, out_dir: &Path) -> Result<ExportReport, ExportError> {
     check_output_clear(out_dir)?;
-    let p = prepare_all(rec, source_dir, Some(PRINT_MAX_WIDTH))?;
-    write_bundle(out_dir, "document.html", &to_html(rec), &p.files)?;
+    let p = prepare_all(rec, source_dir, Output::Print)?;
+    write_bundle(out_dir, "document.html", &to_html(&with_renamed_images(rec, &p.renamed)), &p.files)?;
     Ok(p.report)
 }
 
@@ -361,12 +415,42 @@ mod tests {
         let rec = generate_bundle(src.path(), 1, PRINT_MAX_WIDTH + 400, 10);
         let Block::Step(s) = &rec.blocks[0] else { panic!("expected a step") };
         let shot = s.screenshot.clone().unwrap();
-        let width = |dir: &Path| image::image_dimensions(dir.join(&shot)).unwrap().0;
+        let width = |p: PathBuf| image::image_dimensions(p).unwrap().0;
         let (md, html) = (TempDir::new("md"), TempDir::new("html"));
         export_markdown(&rec, src.path(), md.path()).unwrap();
         prepare_html_export(&rec, src.path(), html.path()).unwrap();
-        assert_eq!(width(md.path()), PRINT_MAX_WIDTH + 400);
-        assert_eq!(width(html.path()), PRINT_MAX_WIDTH);
+        assert_eq!(width(md.path().join(&shot)), PRINT_MAX_WIDTH + 400);
+        let doc = std::fs::read_to_string(html.path().join("document.html")).unwrap();
+        let printed = ["images/print-0001.png", "images/print-0001.jpg"].into_iter().find(|p| doc.contains(p)).unwrap();
+        assert_eq!(width(html.path().join(printed)), PRINT_MAX_WIDTH);
+        assert!(!doc.contains(&shot), "the document points at the renamed file");
+    }
+
+    #[test]
+    fn print_export_renames_shared_images_once_and_skips_withheld() {
+        let src = TempDir::new("src");
+        let mut rec = generate_bundle(src.path(), 3, 40, 20);
+        let shots: Vec<String> = rec.blocks.iter().filter_map(|b| match b {
+            Block::Step(s) => s.screenshot.clone(),
+            _ => None,
+        }).collect();
+        // Step 3 reuses step 1's image (same redactions); step 2 is withheld.
+        let Block::Step(first) = rec.blocks[0].clone() else { panic!("expected a step") };
+        if let Block::Step(s) = &mut rec.blocks[2] {
+            s.screenshot = Some(shots[0].clone());
+            s.redactions = first.redactions.clone();
+        }
+        if let Block::Step(s) = &mut rec.blocks[1] {
+            s.screenshot_withheld = true;
+        }
+        let out = TempDir::new("html");
+        let report = prepare_html_export(&rec, src.path(), out.path()).unwrap();
+        assert_eq!(report.images_written, 1);
+        let doc = std::fs::read_to_string(out.path().join("document.html")).unwrap();
+        let name = ["images/print-0001.png", "images/print-0001.jpg"].into_iter().find(|p| doc.contains(p)).unwrap();
+        assert_eq!(doc.matches(name).count(), 2, "both steps show the one exported file");
+        assert!(out.path().join(name).is_file());
+        assert_eq!(std::fs::read_dir(out.path().join("images")).unwrap().count(), 1);
     }
 
     #[test]

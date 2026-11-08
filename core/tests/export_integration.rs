@@ -80,9 +80,11 @@ fn all_files(dir: &Path) -> Vec<std::path::PathBuf> {
     v
 }
 
-fn check_images(out: &Path) {
+/// `first` and `second` are where steps a and b were written: their own names
+/// in Markdown, `images/print-0001.png` and so on in print exports.
+fn check_images(out: &Path, first: &str, second: &str) {
     // Redacted pixels are black in the written file; one pixel outside is unchanged.
-    let a = decode(&out.join("images/step-001.png"));
+    let a = decode(&out.join(first));
     for (x, y) in [(10, 5), (19, 12), (15, 8)] {
         assert_eq!(a.get_pixel(x, y).0, [0, 0, 0, 255], "inside ({x},{y})");
     }
@@ -90,7 +92,7 @@ fn check_images(out: &Path) {
         assert_eq!(a.get_pixel(x, y).0, FILL, "outside ({x},{y})");
     }
     // The unredacted step is untouched.
-    let b = decode(&out.join("images/step-002.png"));
+    let b = decode(&out.join(second));
     assert!(b.pixels().all(|p| p.0 == FILL));
 
     // Metadata is gone from every written image.
@@ -140,7 +142,7 @@ fn markdown_export_end_to_end() {
     }
     assert_eq!(links, 3);
     assert!(md.contains("Screenshot withheld"));
-    check_images(out.path());
+    check_images(out.path(), "images/step-001.png", "images/step-002.png");
     check_no_leaks(out.path(), src.path());
 }
 
@@ -161,7 +163,11 @@ fn html_export_end_to_end() {
     }
     assert_eq!(links, 3);
     assert!(!html.contains("<script"));
-    check_images(out.path());
+    // Print exports rename images in document order. These flat test images
+    // are smaller as PNG, so they stay PNG and pixel-exact.
+    assert!(html.contains("images/print-0001.png") && html.contains("images/print-0003.png"), "{html}");
+    assert!(!html.contains("step-001.png"));
+    check_images(out.path(), "images/print-0001.png", "images/print-0002.png");
     check_no_leaks(out.path(), src.path());
 }
 

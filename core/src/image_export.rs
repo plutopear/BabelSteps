@@ -11,7 +11,7 @@
 
 use crate::export::ExportError;
 use crate::model::Rect;
-use crate::screenshot::{self, Effort};
+use crate::screenshot::{self, Effort, ShotFormat};
 use image::imageops::{resize, FilterType};
 
 /// Width for printed (HTML and PDF) images. Letter pages print about 7.5 inches
@@ -19,6 +19,35 @@ use image::imageops::{resize, FilterType};
 pub const PRINT_MAX_WIDTH: u32 = 2000;
 
 pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<Vec<u8>, ExportError> {
+    let (format, img) = paint_and_scale(src, redactions, max_width)?;
+    let (width, height) = img.dimensions();
+    screenshot::encode(format, img.as_raw(), width, height, Effort::Normal).map_err(ExportError::Image)
+}
+
+/// For printed exports (HTML, PDF), which are the files people email: like
+/// [`prepare_image`], but encoded as the smaller of JPEG and PNG (256 colours when the
+/// palette keeps the picture, as on UI screens; full colour otherwise), so the file can
+/// change format. This is what brings a typical 30-step PDF under 10 MB
+/// (research/m1-results.md, 'Export size target').
+pub fn prepare_print_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<(ShotFormat, Vec<u8>), ExportError> {
+    let (_, img) = paint_and_scale(src, redactions, max_width)?;
+    let (width, height) = img.dimensions();
+    let jpg = screenshot::encode_jpeg(img.as_raw(), width, height).map_err(ExportError::Image)?;
+    // Photo-like pictures: JPEG wins by far, so the PNG encoders are skipped
+    // (each costs 0.1-0.3 s at print size, and D5 allows 10 s for 100 steps).
+    if screenshot::choose_format(img.as_raw(), width, height, 3) == ShotFormat::Jpeg {
+        return Ok((ShotFormat::Jpeg, jpg));
+    }
+    // A palette PNG, when accepted, is almost always smaller than full colour.
+    let png = match screenshot::encode_palette_png(img.as_raw(), width, height).map_err(ExportError::Image)? {
+        Some(p) => p,
+        None => screenshot::encode_png(img.as_raw(), width, height, Effort::Normal).map_err(ExportError::Image)?,
+    };
+    Ok(if jpg.len() < png.len() { (ShotFormat::Jpeg, jpg) } else { (ShotFormat::Png, png) })
+}
+
+/// Decode, paint the redaction boxes black, then shrink to `max_width`.
+fn paint_and_scale(src: &[u8], redactions: &[Rect], max_width: Option<u32>) -> Result<(ShotFormat, image::RgbImage), ExportError> {
     let (format, mut img) = screenshot::decode(src).map_err(ExportError::Image)?;
     let (width, height) = img.dimensions();
 
@@ -42,8 +71,7 @@ pub fn prepare_image(src: &[u8], redactions: &[Rect], max_width: Option<u32>) ->
         let h = ((u64::from(height) * u64::from(max) + u64::from(width) / 2) / u64::from(width)).max(1) as u32;
         img = resize(&img, max, h, FilterType::CatmullRom);
     }
-    let (width, height) = img.dimensions();
-    screenshot::encode(format, img.as_raw(), width, height, Effort::Normal).map_err(ExportError::Image)
+    Ok((format, img))
 }
 
 #[cfg(test)]
@@ -189,5 +217,30 @@ pub(crate) mod tests {
         let (_, ihdr) = png_chunks(&out).into_iter().next().unwrap();
         assert_eq!(ihdr[9], 2, "colour type 2 (RGB)");
         assert!(out.len() < 2000, "a flat 300x200 image compresses well: {} bytes", out.len());
+    }
+
+    #[test]
+    fn print_images_take_the_smaller_format_and_keep_black_boxes() {
+        // Flat colour: PNG is tiny, so it stays PNG.
+        let (f, out) = prepare_print_image(&solid_png(300, 200, [1, 2, 3, 255]), &[], None).unwrap();
+        assert_eq!(f, ShotFormat::Png);
+        assert_eq!(ShotFormat::sniff(&out), Some(ShotFormat::Png));
+        // Busy pattern: JPEG wins, and the box is still black after scaling.
+        let mut seed: u32 = 5;
+        let noisy = image::RgbaImage::from_fn(800, 400, |x, y| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            let n = ((seed >> 16) % 31) as u8;
+            image::Rgba([100 + n + (x / 8) as u8, 120 + n, 90 + n + (y / 8) as u8, 255])
+        });
+        let mut src = Vec::new();
+        PngEncoder::new(&mut src).write_image(noisy.as_raw(), 800, 400, image::ExtendedColorType::Rgba8).unwrap();
+        let (f, out) = prepare_print_image(&src, &[Rect { x: 0, y: 0, w: 400, h: 400 }], Some(400)).unwrap();
+        assert_eq!(f, ShotFormat::Jpeg);
+        assert_eq!(ShotFormat::sniff(&out), Some(f));
+        let img = image::load_from_memory_with_format(&out, ImageFormat::Jpeg).unwrap().to_rgb8();
+        assert_eq!(img.dimensions(), (400, 200));
+        let [r, g, b] = img.get_pixel(80, 100).0;
+        assert!(r < 12 && g < 12 && b < 12, "inside the box: {r},{g},{b}");
+        assert!(!out.windows(4).any(|w| w == b"Exif"));
     }
 }

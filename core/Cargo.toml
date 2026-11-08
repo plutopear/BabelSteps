@@ -5,7 +5,10 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+color_quant = "1.1.0"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+# Direct use for 256-colour (indexed) PNG, which the `image` encoder does not write.
+png = "0.18.1"
 regex = "1.13.1"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }

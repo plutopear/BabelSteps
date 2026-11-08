@@ -293,7 +293,7 @@ struct ImageScan {
     non_rgb: usize,
 }
 
-/// Decode every Flate RGB image in the PDF and classify the planted squares.
+/// Decode every Flate RGB or JPEG image in the PDF and classify the planted squares.
 fn scan_images(doc: &Document) -> ImageScan {
     let mut s_ = ImageScan::default();
     for obj in doc.objects.values() {
@@ -305,9 +305,22 @@ fn scan_images(doc: &Document) -> ImageScan {
             s_.skipped += 1;
             continue;
         };
-        let Ok(data) = s.decompressed_content() else {
-            s_.skipped += 1;
-            continue;
+        // Print exports may hold JPEG images (PSR-1), which the PDF keeps as DCT streams.
+        let is_jpeg = s.filters().map(|f| f.contains(&&b"DCTDecode"[..])).unwrap_or(false);
+        let data = if is_jpeg {
+            match image::load_from_memory_with_format(&s.content, image::ImageFormat::Jpeg) {
+                Ok(img) => img.to_rgb8().into_raw(),
+                Err(_) => {
+                    s_.skipped += 1;
+                    continue;
+                }
+            }
+        } else {
+            let Ok(data) = s.decompressed_content() else {
+                s_.skipped += 1;
+                continue;
+            };
+            data
         };
         let (w, h) = (w as usize, h as usize);
         if data.len() != w * h * 3 {

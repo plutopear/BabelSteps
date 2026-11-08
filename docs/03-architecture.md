@@ -80,7 +80,7 @@ Block (union)
 
 **Storage:** each recording is a folder bundle, for example `MyRecording.bsrec/`:
 - `recording.db` (SQLite): blocks, settings, and metadata.
-- `images/`: screenshots, one per capture: lossless PNG for UI screens, JPEG (quality 85, no chroma subsampling) when much of the screen is photo-like, both at full resolution with no metadata (`core/src/screenshot.rs`, PSR-1). The writer falls back to the fastest PNG setting when frames queue up, so a burst of clicks is not dropped. Password-field regions are burned in at capture. Other redactions are stored as metadata and applied at export, unless strict mode burns them in at capture (see the Privacy doc §3).
+- `images/`: screenshots, one per capture: lossless PNG for UI screens, JPEG (quality 85, no chroma subsampling) when much of the screen is photo-like, both at full resolution with no metadata (`core/src/screenshot.rs`, PSR-1). The writer falls back to the fastest PNG setting when frames queue up, so a burst of clicks is not dropped. Exports for print (HTML, PDF) shrink images to 2000 px wide and save each as the smallest of JPEG, 256-colour PNG and full-colour PNG, renamed `images/print-NNNN.<ext>`, so that a typical 30-step PDF stays under 10 MB. Markdown exports keep full-size images. Password-field regions are burned in at capture. Other redactions are stored as metadata and applied at export, unless strict mode burns them in at capture (see the Privacy doc §3).
 
 A single-file export (`.bsrec` as a zip) can be added later.
 
