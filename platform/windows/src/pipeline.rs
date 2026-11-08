@@ -37,7 +37,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL};
-use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetAncestor, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT,
+};
 
 /// Bytes of frames allowed between capture and disk at once: 6 frames of a
 /// 5120x1440 screen, 24 of a 1920x1080 one. Capture never waits for room: a
@@ -85,6 +87,9 @@ pub struct RecorderConfig {
     /// Clicks on taskbar elements whose name starts with this are never
     /// recorded (the tray icon in the hidden-icons flyout, named after its tooltip).
     pub ignore_shell_elements_named: Option<String>,
+    /// A3 opt-in, off by default: read the window title and name it in click
+    /// steps. When off, no title is read at all.
+    pub show_window_titles: bool,
 }
 
 impl Default for RecorderConfig {
@@ -97,6 +102,7 @@ impl Default for RecorderConfig {
             ignore_keys: Vec::new(),
             ignore_areas: None,
             ignore_shell_elements_named: None,
+            show_window_titles: false,
         }
     }
 }
@@ -363,6 +369,19 @@ fn root_at(x: i32, y: i32) -> isize {
     unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) }.0 as isize
 }
 
+/// Caption of a top-level window, `None` when it has none. For another
+/// process's window this reads the stored caption without sending it a
+/// message, so a hung app cannot stall analysis.
+fn window_title(hwnd: isize) -> Option<String> {
+    if hwnd == 0 {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    let n = unsafe { GetWindowTextW(HWND(hwnd as *mut _), &mut buf) };
+    let t = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+    (!t.trim().is_empty()).then_some(t)
+}
+
 fn foreground_is_own() -> bool {
     window_pid(unsafe { GetForegroundWindow() }) == own_pid()
 }
@@ -576,6 +595,7 @@ const SHELL_PROCESSES: [&str; 3] = ["explorer", "ShellExperienceHost", "ShellHos
 
 struct Analysis {
     ignore_shell_named: Option<String>,
+    show_window_titles: bool,
     norm: Normalizer,
     recording: Recording,
     uia: UiaPool,
@@ -623,7 +643,12 @@ impl Analysis {
         let start_unix_ms = clock::unix_ms();
         Analysis {
             ignore_shell_named: config.ignore_shell_elements_named.clone(),
-            norm: Normalizer::new(NormalizerConfig { keystrokes_enabled: config.keystrokes_enabled, custom: config.custom }),
+            show_window_titles: config.show_window_titles,
+            norm: Normalizer::new(NormalizerConfig {
+                keystrokes_enabled: config.keystrokes_enabled,
+                custom: config.custom,
+                show_window_titles: config.show_window_titles,
+            }),
             recording,
             uia: UiaPool::new(faults.uia.clone()),
             memory: PasswordMemory::default(),
@@ -853,7 +878,9 @@ impl Analysis {
             }
             _ => None, // Dropped here: a withheld frame is never written.
         };
-        let target = element.as_ref().map(to_target);
+        // Read now, next to the element lookup above, so both describe the same moment.
+        let window_title = self.show_window_titles.then(|| window_title(root_at(x, y))).flatten();
+        let target = element.as_ref().map(|e| to_target(e, window_title));
         let event = Event::Click { t_ms: self.unix_ms(t), button, x, y, target, signals, screenshot };
         let mut blocks = self.norm.push(event);
         if !had_frame {
@@ -894,7 +921,8 @@ impl Analysis {
             }
             _ => None,
         };
-        let target = focused.as_ref().map(to_target);
+        // Typing steps never name the window (A3 covers clicks), so no title is read.
+        let target = focused.as_ref().map(|f| to_target(f, None));
         let event = Event::Key { t_ms: self.unix_ms(t), key, mods, target, signals, screenshot };
         let blocks = self.norm.push(event);
         self.emit(blocks);
@@ -1008,12 +1036,13 @@ fn reported_bounds(infos: &[Option<&ElementInfo>]) -> Vec<Rect> {
     infos.iter().flatten().filter(|i| i.is_password == Some(true)).filter_map(|i| i.bounds).collect()
 }
 
-fn to_target(e: &ElementInfo) -> Target {
+/// `window_title` is `None` unless the user opted in (A3): titles can hold
+/// document names and other private text.
+fn to_target(e: &ElementInfo, window_title: Option<String>) -> Target {
     Target {
         name: e.name.clone(),
         control_type: e.control_type.clone(),
-        // A3: never the window title; it can hold document names and other private text.
-        window_title: None,
+        window_title,
         process_name: e.process_name.clone(),
         // The normalizer also marks the target from the signals, unknowns included.
         is_password: e.is_password == Some(true),
