@@ -10,13 +10,13 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **One owner-approved live run of the current release app** (closes or advances A1, A4, A5, C2, C3, C4, PSR-9; start and stop from the panel, the tray and hotkeys; a note from the panel; settings changed and saved). Measure D1 and D3 in the same run.
 
-**New self-test checks, then one owner-approved self-test run:** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
+**Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
 **Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1), and three minor ones: a per-step time in exports (PSR-2), a "typed text was not recorded" notice (PSR-3), step counts in the document (PSR-5). A6 is decided (Q13) but not built.
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
-**Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, are written and wait for an owner-approved run. Known gap: taskbar buttons and caption text in newer title bars.
+**Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, passed on 2026-11-08 (67 of 67, `research/m1-results.md`): typing with keystrokes off, step titles without the window title, the outline and the click marker, on our own test window. That moves the self-test half of A2, A3 and A11 forward; real apps are still untested. Known gap: taskbar buttons and caption text in newer title bars.
 
 **Claude can build without the owner:** smaller stored images (PSR-1), the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
 

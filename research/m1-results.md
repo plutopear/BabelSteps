@@ -127,3 +127,15 @@ Launched once with the owner's OK. Release exe rebuilt from the branch with `--f
 - Build guard (commit 19b70f1): refuses `cargo build --release` without `custom-protocol`, accepts it with the feature.
 
 **Not tested:** changing and saving settings, shortcut re-registration after a save, the stop notice, a recording in the release app, the owner's own click-through. Why the owner saw the error the second time is unknown.
+
+## 2026-11-08: self-test with titles, typing and outline checks, 67 of 67 pass
+
+Release build, one monitor at 100% scaling, our own test window, synthetic input, run with the owner's OK. New section (12 checks):
+
+- **A11, keystrokes off:** typing into the user name field gave exactly one step, `Typed in "User name:"`. The typed text is in no step and no file (UTF-8 and UTF-16). Control: the text was read back from the field.
+- **A3, titles:** the Save click reads `Left-click "Save" button in capture-selftest`. A right click on the window background is one `Right-click window at (x, y)` step. The window title is in no step and no file. Those background clicks hit the window element, whose accessible name is the window title, so this check exercised the 2026-11-08 fix (before it, the title would have been in the step). Control: the title was read back from the window.
+- **A2, outline and marker:** the Save click's image has the green outline on all four sides, 1 to 3 px outside the button, and none 8 px further out (control). The red ring sits around the click point; another click's image has no ring there (control).
+
+Timings: analysis per event mean 66 ms, max 71 ms (normal); hook callback mean 1.7 us, max 9.2 us.
+
+**Not covered:** real apps (Chromium panes and documents, tab items, taskbar buttons; see the known gap in docs/04 section 2), middle clicks, unnamed controls other than the window, multiple monitors and other scaling.
