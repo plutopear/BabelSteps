@@ -91,13 +91,14 @@ fn options_on_add_times_and_details_in_both_formats() {
     assert!(md.contains("- Screenshots withheld: 1 (the password check failed or could not finish)\n"));
     assert!(md.contains("- Steps without a screenshot: 1\n"));
     assert!(md.contains("- Operating system: Windows 11 (build 22631)\n"));
-    assert!(md.contains("- Step 2: excel.exe, Button \u{201c}Save \\<now\\> & \"go\"\u{201d}\n"), "{md}");
+    assert!(md.contains("- Step 1: excel.exe, Button \u{201c}Save \\<now\\> & \"go\"\u{201d}\n"), "{md}");
+    assert!(md.contains("- Step 2: excel.exe\n"), "a withheld step lists its program only: {md}");
 
     assert!(html.contains("<p class=\"recorded-on\">Recorded on 8 November 2026.</p>"));
     assert!(html.contains("<p class=\"step-time\">Time: 15:06:10</p>"));
     assert!(html.contains("<h2>Technical details</h2>"));
     assert!(html.contains("<li>Recorded steps: 3</li>"));
-    assert!(html.contains("<li>Step 2: excel.exe, Button \u{201c}Save &lt;now&gt; &amp; &quot;go&quot;\u{201d}</li>"), "{html}");
+    assert!(html.contains("<li>Step 1: excel.exe, Button \u{201c}Save &lt;now&gt; &amp; &quot;go&quot;\u{201d}</li>"), "{html}");
     assert!(!html.contains("<now>"), "element names are escaped");
 
     for doc in [&md, &html] {

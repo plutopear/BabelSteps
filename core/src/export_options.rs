@@ -139,7 +139,8 @@ pub fn step_counts(rec: &Recording) -> StepCounts {
 pub struct TechnicalDetails {
     /// Label and value pairs, in display order.
     pub facts: Vec<(&'static str, String)>,
-    /// Per step: number, program and UI element. Steps with no element are left out.
+    /// Per step: number, program and UI element. Steps with no element are left
+    /// out; a step with a withheld screenshot shows its program only.
     pub steps: Vec<(usize, String)>,
 }
 
@@ -186,7 +187,9 @@ pub fn technical_details(rec: &Recording, opts: &ExportOptions) -> Option<Techni
         let Some(t) = &s.target else { continue };
         let program = t.process_name.trim();
         let kind = t.control_type.trim();
-        let name = t.name.trim();
+        // A step whose password check failed lists its program only.
+        let name = if s.screenshot_withheld { "" } else { t.name.trim() };
+        let kind = if s.screenshot_withheld { "" } else { kind };
         let element = match (kind.is_empty(), name.is_empty()) {
             (_, true) => kind.to_string(),
             (true, false) => format!("\u{201c}{name}\u{201d}"),
@@ -313,7 +316,7 @@ mod tests {
             d.steps,
             vec![
                 (1, "notepad.exe, Button \u{201c}Save\u{201d}".to_string()),
-                (2, "msedge.exe, Edit \u{201c}Password\u{201d}".to_string()),
+                (2, "msedge.exe".to_string()),
             ]
         );
         let all = format!("{d:?}");
