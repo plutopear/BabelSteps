@@ -216,7 +216,7 @@ impl UiaPool {
     }
 }
 
-fn process_name(pid: u32) -> String {
+pub(crate) fn process_name(pid: u32) -> String {
     unsafe {
         let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
             return String::new();

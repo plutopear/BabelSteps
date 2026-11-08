@@ -31,6 +31,7 @@ pub fn run() {
             recording::recording_status,
             recording::set_editor_unsaved,
             recording::start_recording,
+            recording::list_capture_targets,
             recording::pause_recording,
             recording::resume_recording,
             recording::add_comment,

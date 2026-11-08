@@ -76,7 +76,21 @@ function summary(rec: Recording): ExportSummary {
 }
 
 // Simulated recorder: one step every ~2 s while active and not paused.
-const R = { active: false, paused: false, keystrokes: false, path: null as string | null, steps: 0, notes: 0, noteRequests: 0, last: 0, notice: null as string | null };
+const R = {
+  active: false, paused: false, keystrokes: false, path: null as string | null, steps: 0, notes: 0, noteRequests: 0, last: 0,
+  notice: null as string | null,
+  scope: { kind: "screen", label: "" } as { kind: "screen" | "monitor" | "window"; label: string },
+};
+const MOCK_TARGETS = {
+  monitors: [
+    { device: "\\\\.\\DISPLAY1", label: "Main monitor (2560 × 1440)" },
+    { device: "\\\\.\\DISPLAY2", label: "Monitor 2 (1920 × 1080)" },
+  ],
+  windows: [
+    { id: 101, label: "Sample document - Notepad (notepad)" },
+    { id: 102, label: "Sample page - Edge (msedge)" },
+  ],
+};
 function recStatus() {
   const now = Date.now();
   if (R.active && !R.paused && now - R.last >= 2000) {
@@ -91,6 +105,7 @@ function recStatus() {
     noteRequests: R.noteRequests,
     startRequests: 0,
     notice: R.notice,
+    scope: R.active ? R.scope : { kind: "screen", label: "" },
     hotkeys: [
       { action: "Start or stop recording", keys: "Ctrl+Alt+Shift+R", registered: true },
       { action: "Pause or resume", keys: "Ctrl+Alt+Shift+P", registered: true },
@@ -113,6 +128,8 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
   switch (cmd) {
     case "recording_status":
       return recStatus();
+    case "list_capture_targets":
+      return structuredClone(MOCK_TARGETS);
     case "get_settings":
       return structuredClone(settings);
     case "save_settings": {
@@ -132,7 +149,14 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
         open = `${FOLDER}\\recording-${++seq}.bsrec`;
         store.set(open, { format_version: 2, id: `r${seq}`, title: "Recording", created_unix_ms: Date.now(), blocks: [] });
       }
-      Object.assign(R, { active: true, paused: false, keystrokes: Boolean(a.keystrokes), path: open, steps: 0, notes: 0, last: Date.now() });
+      const t = (a.target ?? { kind: "screen" }) as { kind: string; device?: string; id?: number };
+      const scope =
+        t.kind === "monitor"
+          ? { kind: "monitor" as const, label: MOCK_TARGETS.monitors.find((m) => m.device === t.device)?.label ?? "one monitor" }
+          : t.kind === "window"
+            ? { kind: "window" as const, label: t.id === 101 ? "notepad" : "msedge" }
+            : { kind: "screen" as const, label: "" };
+      Object.assign(R, { active: true, paused: false, keystrokes: Boolean(a.keystrokes), path: open, steps: 0, notes: 0, last: Date.now(), scope });
       return recStatus();
     }
     case "pause_recording":
