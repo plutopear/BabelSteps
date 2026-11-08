@@ -2,6 +2,8 @@
 
 Milestones are sequenced by dependency, not calendar dates. The pass/fail exit criteria for each milestone, and their current status, are in `07-definition-of-done.md`. Each milestone ends with the owner doing one real task with the build. Sizing and dates get set once the Q-decisions are made and the team and time budget are known.
 
+**Repository public (2026-11-08):** the repository was made public with rewritten history, to remove a personal email address from old commits. Pull request numbers written before that date refer to the old private repository and no longer link anywhere; numbering restarted, and the licence files are the new PR #1 (in review).
+
 ## M0 — Decisions and spikes
 
 **Goal:** settle the blocking questions and prove the risky parts work.
@@ -31,7 +33,7 @@ Milestones are sequenced by dependency, not calendar dates. The pass/fail exit c
 1. Done 2026-11-07: tray menu and quit while recording pass. Clicks on the BabelSteps tray icon are no longer recorded (fixed and retested).
 2. Real apps: Edge password fields pass (2026-11-07, 27/27, `browser-selftest`; plain and sign-in forms, "show password" button). Chrome and Firefox not installed; the owner chose Edge only. Still to do: an elevated window (Q17).
 3. Sleep, lock, resolution change; multiple monitors if the owner has a second one.
-4. The Steps Recorder parity checklist, item by item (the M1 exit). Drafted 2026-11-08 in `research/m1-parity-checklist.md`. At the end of 2026-11-08: 2 of 32 items pass and 20 are partial. It lists what closes each gap and who must act.
+4. The Steps Recorder parity checklist, item by item (the M1 exit). Drafted 2026-11-08 in `research/m1-parity-checklist.md`. After PR #11 on 2026-11-08: 2 of 32 items pass and 25 are partial; no owner decisions are left open. It lists what closes each gap and who must act.
 Built 2026-11-08, merged into `main` (PR #2): retention settings (A8), the screen frame (C2), remappable hotkeys (C3). Live app test 21 of 22. Self-tested live 2026-11-08 (`research/m1-results.md`): frame out of screenshots (both capture methods), edge clicks, remapped shortcuts left out of steps, retention on disk. The owner has not clicked through the Settings window themself; multi-monitor is untested on hardware (Q20); Windows 10 is unsupported (Q19). Not built yet: the single-file output decision (A9, Q2).
 Built 2026-11-08: the setting for what closing the window does (Q21). Live test 24 of 24 (`research/m1-results.md`): D1 is met in tray mode (6 MB), the note shortcut rebuilds the window, and the rebuilt window is hardened. Not tested yet: Show and double-click from the tray icon (they need real taskbar clicks), and sign-out during a recording with the window closed.
 
@@ -49,8 +51,8 @@ Done this session:
 
 Next, in order:
 1. Owner clicks: tray menu Stop, Show and Quit, a double-click on the tray icon, seeing the frame and the retention notice, and the Settings click-through.
-2. Smaller stored images (PSR-1) are built (2026-11-08): compressed PNG or JPEG on disk, and PDF pictures shrunk to 1600 px for the 10 MB target (Q24); a real 30-step PDF is not yet measured. The window-or-monitor choice (A6, Q13) is built (2026-11-08) and passed its self-test checks on Windows. The opt-in full window title (A3) is built on branch `claude/project-thread-axy1rr` (2026-11-08); its self-test check still needs a run on Windows.
-3. Step times, the typed-text notice, step counts and the technical-details option (PSR-2, PSR-3, PSR-5, PSR-6; Q25, Q30) are built on branch `claude/project-thread-164l6e` (2026-11-08): core unit tests pass and the Windows build and tests pass (208 of 208); a real PDF export with the options on and the counts after a live recording are not yet checked. A9 and PSR-7 are decided in Q23 and Q25.
+2. Claude can build without the owner. Merged into `main` on 2026-11-08: the window-or-monitor choice (A6, Q13; PR #5, self-test checks passed on Windows) and the opt-in full window title (A3; PR #4; its self-test check `window_title_opt_in` has not run on Windows and the owner has not clicked the Settings option). The privacy checks run in CI (PR #10, merged 2026-11-08; Definition of Done 3.4 is Partial). Smaller stored images (PSR-1, PR #9, merged 2026-11-08): compressed PNG or JPEG on disk, and PDF pictures wider than 2000 px shrunk to 1600 px for the 10 MB target (Q24); a real 30-step PDF is not yet measured.
+3. Step times, the typed-text notice, step counts and the technical-details option (PSR-2, PSR-3, PSR-5, PSR-6; Q25, Q30) are merged into `main` (PR #11, 2026-11-08): the Windows build and 211 tests passed; a real PDF export with the options on and the counts notice after a live recording are not yet checked. A9 and PSR-7 are decided in Q23 and Q25.
 4. Hardware or machine state: an elevated window (Q17), sleep, lock and resolution change, and a second monitor (Q20).
 
 Live tests:

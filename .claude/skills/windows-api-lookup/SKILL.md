@@ -11,7 +11,7 @@ The crate's generated `mod.rs` files are very large (`UI/Accessibility` alone is
 
 Search the registry copy with Grep, in `content` mode with `-B 1`. The line above each match lists the features it needs:
 
-- **path:** `C:\Users\jason\.cargo\registry\src`
+- **path:** `%USERPROFILE%\.cargo\registry\src` (expand it to your user folder)
 - **glob:** `**/windows-0.62*/src/Windows/Win32/UI/Accessibility/mod.rs` (use the namespace you need)
 - **pattern:** `pub unsafe fn CreatePropertyCondition\b`
 
