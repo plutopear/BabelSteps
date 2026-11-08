@@ -361,4 +361,25 @@ mod tests {
         assert!(encode_jpeg(&[0; 10], 2, 2).is_err());
         assert!(encode_jpeg(&[], 70_000, 0).is_err());
     }
+
+    #[test]
+    fn decode_refuses_damaged_and_oversized_images_without_panicking() {
+        use crate::testing::{png_with_declared_size, solid_png};
+        let good = solid_png(16, 16, [10, 20, 30, 255]);
+        assert!(decode(&good).is_ok());
+        // Cut inside the signature, the header and the pixel data. (Cutting only
+        // the last bytes of the closing IEND chunk still leaves every pixel, so
+        // that one is allowed to decode.)
+        for cut in [8, 20, 33, 60, 100, 150] {
+            assert!(decode(&good[..cut]).is_err(), "cut at {cut}");
+        }
+        // Not an image, empty, and a bare JPEG start marker.
+        assert!(decode(b"").is_err());
+        assert!(decode(b"hello, world").is_err());
+        assert!(decode(&[0xFF, 0xD8, 0xFF]).is_err());
+        // A header that claims a billion pixels over a tiny file must fail
+        // cleanly instead of trying to allocate the picture.
+        let bomb = png_with_declared_size(&good, 60_000, 60_000);
+        assert!(decode(&bomb).is_err());
+    }
 }

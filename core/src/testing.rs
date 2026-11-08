@@ -95,6 +95,20 @@ fn chunk(name: &[u8; 4], data: &[u8]) -> Vec<u8> {
     c
 }
 
+/// Rewrite the width and height an existing PNG declares in its IHDR (with a
+/// valid CRC), leaving the pixel data alone. Used to make a file that claims
+/// to be enormous but is tiny.
+pub fn png_with_declared_size(png: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let ihdr_end = 8 + 12 + 13;
+    let mut data = png[16..16 + 13].to_vec();
+    data[..4].copy_from_slice(&width.to_be_bytes());
+    data[4..8].copy_from_slice(&height.to_be_bytes());
+    let mut out = png[..8].to_vec();
+    out.extend(chunk(b"IHDR", &data));
+    out.extend_from_slice(&png[ihdr_end..]);
+    out
+}
+
 /// Insert tEXt, iTXt and eXIf chunks (each containing `SECRET-META`) right
 /// after IHDR, with valid CRCs.
 pub fn png_with_extra_chunks(png: &[u8]) -> Vec<u8> {
