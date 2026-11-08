@@ -187,3 +187,50 @@ Run with the owner's OK on the release build, using `live-tray-test.ps1` in the 
   - The fail-closed path itself (it never triggered).
 - After this run, the privacy audit found that the refused window could be shown again while its error message was open, and that the window appeared before its hardening was confirmed. Both are fixed: the window is now built hidden and shown only once the hardening is confirmed, and a timeout reports a hardening step that never runs. The audit passed after the fix. **The window-showing change has not been live-tested.** The 24 of 24 run used the build before it. A later finding is noted but not fixed: a late "window destroyed" event can stop Show from bringing an already-open window to the front. It cannot show an unhardened window.
 - Quick follow-up (2026-11-08, with the owner's OK, no recording made): on the hidden-until-hardened build, the window appeared 0.66 s after launch, the Library screen loaded at 0.81 s, right-clicking opened no browser menu, and closing quit the app (default setting). 4 of 4.
+
+## 2026-11-08: Screenshot size (PSR-1)
+
+Built in `core/src/screenshot.rs`. Measured in a Linux cloud container (4 cores), not on the owner's PC, using test pages rendered by headless Chromium at 5120x1440: text documents in five columns (docs), a 40-column spreadsheet (table), a settings page with 150 controls (form), the docs page with a noisy photo-like gradient over its left 10% (photo10), and a page whose left half is that gradient (mixed). No real screen content was used. Timings are single runs on that container.
+
+| Screen | Photo-like share | Stored as | Before (fast PNG) | Now | Encode time now | Print-size export |
+| --- | --- | --- | --- | --- | --- | --- |
+| docs | 0.04 | PNG | 4,249 KB | 1,761 KB | 99 ms | 595 KB |
+| table | 0.04 | PNG | 4,462 KB | 991 KB | 71 ms | 949 KB |
+| form | 0.07 | PNG | 1,665 KB | 561 KB | 58 ms | 303 KB |
+| photo10 | 0.13 | PNG | 5,677 KB | 3,201 KB | 161 ms | 727 KB |
+| mixed | 0.49 | JPEG | 10,397 KB | 1,476 KB | 139 ms | 137 KB |
+
+- Choosing the format reads every 4th row and took about 9 ms per frame, on the analysis thread.
+- An assumed 100-step mix (30 docs, 25 table, 25 form, 10 photo10, 10 mixed; a guess, not measured usage) went from 431 MB to 135 MB on disk. Its print-size images, which the HTML and PDF exports use, total 56 MB. The PDF itself was not measured. Steps Recorder needs about 40 MB per 100 steps.
+- Options measured and not used: JPEG at quality 80 to 95 was larger than the compressed PNG on every UI screen (docs at quality 85: 1,897 KB), and blurs text. Lossless WebP from the `image` crate was larger than PNG on the form page (1,129 KB). Deflate level 6 was 1-15% smaller than level 3 for about twice the time. Quality 80 JPEG text looked softer than 85 at 2x zoom.
+- Exports used the fastest PNG setting with an alpha channel; they now use the same compressed RGB PNG, or JPEG for JPEG sources, still re-encoded from pixels with no metadata.
+- **Not tested:** real Windows screens (ClearType text may compress worse; M0 measured 1.5-3.8 MB for real fast-PNG frames, in the same range as the test pages); the fastest-PNG fallback when frames queue up (more than 100 MB in flight); encode times on the owner's PC; a real 100-step recording; the PDF size; the capture self-test on this build.
+
+## 2026-11-08: PDF size is set by WebView2, not by our image files (PSR-1)
+
+The owner set a target on 2026-11-08: a typical 30-step recording under 10 MB, about what Steps Recorder produces, so it can be emailed.
+
+A first attempt saved each print image as the smallest of JPEG, 256-colour PNG and full PNG. On the test pages that cut the exported image files for 30 steps to 7.9 MB (1920x1080) and 9.1 MB (5120x1440), but 20.9 MB at 2560x1440. The PDF self-test on the owner's PC (release build, 24 logical CPUs, PC in normal use, two runs) then showed:
+
+- **No JPEG reached the PDF.** WebView2 decodes every image and compresses the pixels again itself. The 100-step 5120x1440 PDF stayed at 225.6 MB, the same as on 2026-11-06.
+- The 1920x540 run grew from 16.1 MB to 79.1 MB. Our JPEG versions of the patterned test images added pixel noise, which WebView2's own compression handles badly.
+- Preparing images took 3.8-4.3 s instead of 2.1 s. The total went to 9.4-10.2 s, and one of four timed exports missed D5 (under 10 s).
+
+That attempt was reverted. Print images (HTML and PDF) now use the fastest PNG setting, because their compression cannot change the PDF size. Markdown exports and stored screenshots keep the tighter encoding from the section above.
+
+**What this means for the 10 MB target:** with WebView2 printing, the PDF size depends only on how many pixels each image has and how simple they are. Choosing a file format does nothing. The levers left are a smaller print width, or writing the PDF ourselves so images can be embedded as JPEG or palette data. A real 30-step recording has not been exported yet, so the real PDF size is unknown: the patterned self-test images compress far worse than real screens.
+
+## 2026-11-08: First real recording sizes (PSR-1)
+
+The release app was built from commit d8081ca and run on the owner's PC with their OK. Conditions: one 5120x1440 screen at 100% scale, keystrokes off. This is a single run. It has only 8 steps, not the planned 30: windows that were already open were left alone, and the Calculator clicks failed to find their buttons. All 8 steps are clicks in File Explorer, which shows fairly plain screens. Nobody viewed the screenshots, and the recording and exports were deleted afterwards.
+
+- Stored: 8 PNG, 0 JPEG, all 5120x1440. Total 5.25 MB, 672 KB per screenshot on average (M0's fast PNG: 1.5-3.8 MB). The recording folder was 5.27 MB.
+- PDF (the app's export command): 2.94 MB for 3 pages, exported in 0.59 s. With header and footer: 2.96 MB in 0.60 s. 8 images, none JPEG.
+- Markdown: 5.25 MB folder, 0.11 s.
+- Estimated from these 8 steps, not measured: about 0.37 MB of PDF per step. That makes **about 11 MB for 30 steps**, just over the 10 MB target, and about 37 MB for 100 steps (the self-test's patterned images give 225.6 MB). A recording of 30 steps would be about 20 MB on disk. Busier screens will be larger.
+
+## 2026-11-08: 1600 px print images (PSR-1, owner's choice)
+
+PDF self-test on the owner's PC: release build, 24 logical CPUs, PC in normal use, patterned images, one run. Commit 9ca2bd7 shrinks every print image wider than 1600 px. All checks passed. The 100-step 5120x1440 PDF went from 225.6 MB to 54.0 MB, and from 8.7-9.4 s to 5.5 s (D5 met). Redaction held in all 100 images.
+
+The same run's 1920x540 export grew from 16.1 MB to 145.3 MB, and from about 3.0 s to 5.0 s. A mild shrink blurs sharp edges into in-between colours, which WebView2's compression handles badly. So only images wider than 2000 px are now shrunk to 1600 px; narrower ones keep their size, as before. Re-run at commit 7eeedf0 (same conditions, one run, all checks passed): 5120x1440 gave 54.0 MB in 5.1-5.3 s, and 1920x540 went back to 16.1 MB in 3.06 s. Redaction held in all 100 images. **Not measured:** a real recording at the 1600 px setting. Scaling the real 8-step result by pixel count suggests about 7 MB per 30 steps on an ultrawide screen (a guess).

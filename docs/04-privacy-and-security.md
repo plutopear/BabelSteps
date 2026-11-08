@@ -111,4 +111,4 @@ Not covered yet:
 
 - **Windows capture at runtime.** Hooks, screen capture and UI Automation need a real desktop, so no automatic runtime socket test covers them. The source scan and dependency check still apply to that code.
 - **WebView2's own processes.** The window is drawn by Microsoft's WebView2, which runs in separate processes that the app does not control. The content security policy stops our page from reaching the network; it does not govern what WebView2 itself does.
-- **Blocking a release.** Checks run on every pull request, but GitHub only lets a failed check block merging on a private repository with a paid plan. Until the repository is public (row 3.1) and `main` requires the checks to pass, a red check is a warning that a person must respect.
+- **Blocking a release.** Checks run on every pull request, but GitHub only lets a failed check block merging on a private repository with a paid plan. The repository went public on 2026-11-08, so `main` can now require the checks to pass; until that rule is switched on, a red check is a warning that a person must respect.
