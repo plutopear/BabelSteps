@@ -22,7 +22,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Done 2026-11-08 (self-test, 67 of 67):** A11 (keystrokes off, typing into our test window gives exactly one "Typed in" step and the text is in no file), A2 (outline and click-marker pixels on our test window, with a control), A3 (named left click, right click, unnamed area).
 
-**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1), and three minor ones: a per-step time in exports (PSR-2), a "typed text was not recorded" notice (PSR-3), step counts in the document (PSR-5). A6 is decided (Q13) but not built.
+**Owner decisions:** A9 (does PDF count as the single file, Q2), PSR-6 (technical-details section in exports), PSR-7 (command-line control in v1). PSR-2, PSR-3 and PSR-5 were decided on 2026-11-08 (Q30) and are not built yet. A6 is decided (Q13) but not built.
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
@@ -260,7 +260,7 @@ Each step has a number and a timestamp.
 
 - **Steps Recorder:** Each step has a number and timestamp.
 - **Evidence:** Numbers: core/src/normalize.rs steps_keep_their_order_and_get_sequential_ids; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image. Time: StepBlock.captured_unix_ms is stored (core/src/model.rs), but in core/src/markdown.rs, html.rs and export.rs it appears only in test fixtures.
-- **Gap:** Numbering is unit-tested and does not depend on the desktop. The capture time is stored but shown nowhere: not in Markdown, HTML or PDF exports, and not in the app UI. Showing a time per step is not built. Minor product choice whether to show it (time zone and privacy), then a unit test.
+- **Gap:** Numbering is unit-tested and does not depend on the desktop. The capture time is stored but shown nowhere: not in Markdown, HTML or PDF exports, and not in the app UI. Showing a time per step is not built. Decided 2026-11-08 (Q30): always shown in the app, an off-by-default option in exports. Needs building, then a unit test.
 
 ### PSR-3: Not built
 
@@ -268,7 +268,7 @@ The output states that typed text and passwords were not recorded (when keystrok
 
 - **Steps Recorder:** The file says passwords and any other typed text were not recorded, except function and shortcut keys.
 - **Evidence:** No such notice in core/src/markdown.rs, html.rs or export.rs (grep for 'not recorded' and 'keystroke' found nothing). The panel and tray tooltip show keystrokes on or off while recording (m1-results 'Tray test').
-- **Gap:** Not built. Product choice whether exports carry a keystroke-capture notice. It must state only what was not captured and never claim the export is free of sensitive data (product rule). Then a unit test on the exporters.
+- **Gap:** Not built. Decided 2026-11-08 (Q30): one deletable line in every export by default, worded for keystrokes on or off. It must state only what was not captured and never claim the export is free of sensitive data (product rule). Then a unit test on the exporters.
 
 ### PSR-4: Partial
 
@@ -284,7 +284,7 @@ The document states how many steps were recorded and how many were missed or had
 
 - **Steps Recorder:** Summary line: 'Recorded Steps: 31, Missed Steps: 0, Other Errors: 0'.
 - **Evidence:** Steps carry screenshot_withheld, and exports leave out withheld images (core/src/markdown.rs withheld_step_never_links_its_image; core/src/html.rs numbering_matches_markdown_and_withheld_has_no_image). Pipeline status counts withheld steps and UI Automation timeouts (read by capture_selftest). Grep for a recorded or missed summary in core/src/html.rs and markdown.rs found none.
-- **Gap:** No total of recorded, withheld, or over-budget steps reaches the user or the document. Needs a small build and a unit test. Whether exports show the counts is a minor product choice.
+- **Gap:** No total of recorded, withheld, or over-budget steps reaches the user or the document. Decided 2026-11-08 (Q30): counts shown in the app after every recording, and in exports only inside the optional technical-details section (PSR-6). Needs a small build and a unit test.
 
 ### PSR-6: Owner decision
 
