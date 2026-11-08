@@ -105,10 +105,17 @@ fn near(a: [u8; 3], b: [u8; 3], tol: u8) -> bool {
 /// black box, and differs from the test window's red background.
 const MARKER: [u8; 3] = [255, 0, 0];
 
+/// The outline colour the recorder draws round the clicked element
+/// (`Frame::outline`). Like the marker it is drawn after the black-out, so where
+/// it crosses a hidden field it replaces black with green; it never shows what was
+/// under the black.
+const OUTLINE: [u8; 3] = [0, 200, 0];
+
 /// Every pixel of the rectangle (shrunk by one pixel, to skip edges) is black,
-/// or the click marker drawn over the black.
+/// or the click marker or the element outline drawn over the black.
 fn all_black(f: &Frame, (x, y, w, h): (i32, i32, i32, i32)) -> bool {
-    (y + 1..y + h - 1).all(|py| (x + 1..x + w - 1).all(|px| f.sample(px, py).is_some_and(|c| c.iter().all(|&v| v < 10) || c == MARKER)))
+    (y + 1..y + h - 1)
+        .all(|py| (x + 1..x + w - 1).all(|px| f.sample(px, py).is_some_and(|c| c.iter().all(|&v| v < 10) || c == MARKER || c == OUTLINE)))
 }
 
 fn files_under(dir: &Path) -> Vec<PathBuf> {
@@ -343,6 +350,12 @@ fn window_changes_after_click(c: &mut Checks, win: &TestWindow, dir: &Path) -> R
             Some(rel) => {
                 let f = load(&bundle, rel, &m)?;
                 if all_black(&f, pass) {
+                    let (x, y, w, h) = pass;
+                    let outline = (y + 1..y + h - 1)
+                        .flat_map(|py| (x + 1..x + w - 1).map(move |px| (px, py)))
+                        .filter(|&(px, py)| f.sample(px, py) == Some(OUTLINE))
+                        .count();
+                    c.info(format!("window change: {outline} pixels over the hidden field are the recorder's own element outline"));
                     "image with the field black".to_string()
                 } else {
                     // Diagnostics: is it real content, or noise from how the file stores black?
@@ -356,7 +369,7 @@ fn window_changes_after_click(c: &mut Checks, win: &TestWindow, dir: &Path) -> R
                                 total += 1;
                                 let v = c.into_iter().max().unwrap_or(0);
                                 brightest = brightest.max(v);
-                                over += usize::from(v >= 10 && c != MARKER);
+                                over += usize::from(v >= 10 && c != MARKER && c != OUTLINE);
                             }
                         }
                     }
@@ -977,9 +990,6 @@ fn remapped_hotkeys(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> 
     Ok(())
 }
 
-/// The outline's exact colour (`Frame::outline`), distinct from the test
-/// window's green background.
-const OUTLINE: [u8; 3] = [0, 200, 0];
 const TYPED_OFF: &str = "carol";
 
 /// A11, A3 and A2 on our own window, keystrokes off: typing becomes one
