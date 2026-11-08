@@ -169,6 +169,9 @@ pub struct RecorderStatus {
     pub away: bool,
     /// How many times the person went away (lock, sleep, switching user) in this recording.
     pub away_periods: u32,
+    /// The window in front runs as administrator and this recorder does not, so
+    /// clicks in it are not recorded (PSR-8, Q31). A guess from `elevation`.
+    pub elevated_in_front: bool,
     /// Things the user should know, such as "screenshots withheld: a window could not be checked".
     pub warnings: Vec<String>,
 }
@@ -521,7 +524,10 @@ fn capture_loop(
             }
             publish_capture(&status, &capturer, &in_flight, &over_budget);
             let lost = scope::lost(&opts.scope, capturer.monitors()).map(str::to_string);
-            status.lock().unwrap_or_else(|e| e.into_inner()).scope_lost = lost;
+            let elevated = crate::elevation::foreground_is_elevated_for_us();
+            let mut st = status.lock().unwrap_or_else(|e| e.into_inner());
+            st.scope_lost = lost;
+            st.elevated_in_front = elevated;
         }
         if let Some(ev) = held.take() {
             handle_raw(ev, paused, away.is_away(), &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);

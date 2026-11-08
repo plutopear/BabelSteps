@@ -263,3 +263,13 @@ Hand test of the real release app (`main` at 76b17e6, owner at the keyboard, one
 - The owner was told to stop with the tray menu's Stop recording; he then reported that the retention limit (newest 2) had kept all steps and the pictures of the newest 2, as Settings says. He did not say separately that Stop worked, so Stop from the tray is likely but not stated. Retention: Pass.
 - Not covered: the tray menu's Pause entry, the exact wording of the notice (the owner did not quote it), and a second monitor.
 
+## 2026-11-08: Admin windows and UAC (PSR-8)
+
+Live tests on the owner's PC (one monitor, normal use, owner at the keyboard, recorder running as the normal user). Two tools, both in `platform/windows/src/bin`: `lock-live` (a plain recording, times and counts only) and `elevated-check` (opens our test window with a password box as a normal or as an elevated window, records with the real recorder, and checks every click the owner makes in it; the owner must click, because Windows blocks synthetic input into an elevated window). One run each.
+
+- **Notepad and Command Prompt as administrator, with `lock-live` (25 steps in about 60 s):** every step had a picture, none withheld, none missed, and the hooks were reinstalled 8 times around the UAC prompts. The log cannot say which steps were inside an admin window, and Notepad has no password field, so it says nothing about password protection.
+- **`elevated-check`, control (normal window):** 6 clicks in the window (password box, user name box, background, 2 each), all 6 saved with the password box black. PASS.
+- **`elevated-check`, elevated window (UAC approved, window confirmed elevated):** 0 of the owner's clicks in the window made a step (2 steps were recorded elsewhere), hooks reinstalled 7 times. RESULT: INCONCLUSIVE by the tool's own rule (no click in the window was recorded), which is the finding: a recorder running as a normal user does not receive input aimed at an elevated window.
+- **What follows:** nothing from an admin window can be saved (no picture, no step), so no password pixels can leak from one; admin windows are simply not recorded. The click on the UAC prompt (secure desktop) is also not seen, as expected. A guess: the 7 to 8 hook reinstalls come from Windows dropping the hooks when input moves to an elevated window or the secure desktop; the recorder's alive check recovers them within a second.
+- **Not covered:** typing in an elevated window, an elevated window with a real password prompt, what Steps Recorder does, and a recorder started as administrator.
+
