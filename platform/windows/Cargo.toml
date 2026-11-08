@@ -21,6 +21,11 @@ path = "src/bin/capture_selftest.rs"
 required-features = ["selftest"]
 
 [[bin]]
+name = "lock-live"
+path = "src/bin/lock_live.rs"
+required-features = ["selftest"]
+
+[[bin]]
 name = "browser-selftest"
 path = "src/bin/browser_selftest.rs"
 required-features = ["selftest"]
