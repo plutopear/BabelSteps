@@ -1,6 +1,6 @@
 // BABELSTEPS_MOCK_BACKEND: dev-only, in-memory stand-in for the Tauri commands.
 // Sample data is made up. Never imported in production builds (see api.ts).
-import type { Block, Recording, StepBlock, ExportSummary } from "./types";
+import type { Block, Recording, StepBlock, ExportSummary, Template } from "./types";
 
 const FOLDER = "C:\\Sample\\BabelSteps";
 const store = new Map<string, Recording>();
@@ -27,6 +27,35 @@ function seed(name: string, blocks: Block[], created: number) {
   store.set(`${FOLDER}\\${id}.bsrec`, {
     format_version: 2, id, title: name, created_unix_ms: created, blocks,
   });
+}
+
+// Same sections as core/src/templates.rs (dev-only copy).
+function templateBlocks(t: Template): Block[] {
+  const h = (id: string, text: string): Block => ({ type: "heading", id, level: 2, text });
+  const p = (id: string, text: string): Block => ({ type: "text", id, text });
+  const l = (id: string, item: string): Block => ({ type: "list", id, ordered: false, items: [item] });
+  if (t === "helpdesk_how_to")
+    return [
+      h("template-purpose", "Purpose"),
+      p("template-purpose-text", "Describe in one sentence what this guide helps someone do."),
+      h("template-before", "Before you start"),
+      l("template-before-list", "Add anything the reader needs first, or delete this section."),
+      h("template-steps", "Steps"),
+      h("template-result", "Result"),
+      p("template-result-text", "Describe what the reader should have when they finish."),
+    ];
+  if (t === "training_guide")
+    return [
+      h("template-goal", "Goal"),
+      p("template-goal-text", "Describe in one sentence what the learner will be able to do."),
+      { type: "callout", id: "template-tip", kind: "tip", text: "Take your time; you can repeat these steps as often as you like." },
+      h("template-needs", "What you need"),
+      l("template-needs-list", "Add anything the learner needs first, or delete this section."),
+      h("template-steps", "Steps"),
+      h("template-expect", "What you should see"),
+      p("template-expect-text", "Describe what the learner should see when they finish."),
+    ];
+  return [];
 }
 
 seed("Sample: Reset a password", [
@@ -209,7 +238,9 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       const title = String(a.title).trim();
       if (!title) throw { kind: "invalid_argument", message: "" };
       const path = `${FOLDER}\\new-${++seq}.bsrec`;
-      const rec: Recording = { format_version: 2, id: `n${seq}`, title, created_unix_ms: Date.now(), blocks: [] };
+      const rec: Recording = { format_version: 2, id: `n${seq}`, title, created_unix_ms: Date.now(),
+        blocks: templateBlocks((a.template as Template | null | undefined) ?? "blank"),
+      };
       store.set(path, rec);
       open = path;
       return { path, recording: structuredClone(rec) };
