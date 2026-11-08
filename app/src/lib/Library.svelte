@@ -2,7 +2,8 @@
   import { api, describeError } from "./api";
   import { say } from "./announce.svelte";
   import Modal from "./Modal.svelte";
-  import type { LibraryListing, OpenedRecording, RecordingSummary } from "./types";
+  import { TEMPLATES } from "./types";
+  import type { LibraryListing, OpenedRecording, RecordingSummary, Template } from "./types";
 
   let { onopen }: { onopen: (o: OpenedRecording) => void } = $props();
 
@@ -10,6 +11,7 @@
   let loading = $state(true);
   let error = $state("");
   let newTitle = $state("");
+  let template = $state<Template>("blank");
   let busy = $state(false);
   let renaming = $state<{ rec: RecordingSummary; title: string } | null>(null);
   let deleting = $state<RecordingSummary | null>(null);
@@ -45,7 +47,7 @@
       error = "Type a name for the new recording first.";
       return;
     }
-    run("creating the recording", async () => onopen(await api.create(newTitle.trim())));
+    run("creating the recording", async () => onopen(await api.create(newTitle.trim(), undefined, template)));
   };
   const open = (r: RecordingSummary) =>
     run("opening the recording", async () => onopen(await api.open(r.path)));
@@ -89,8 +91,16 @@
     <label>New recording name
       <input type="text" bind:value={newTitle} placeholder="For example: Reset a password" />
     </label>
+    <label>Start from
+      <select bind:value={template} aria-describedby="template-hint">
+        {#each TEMPLATES as t (t.id)}
+          <option value={t.id}>{t.label}</option>
+        {/each}
+      </select>
+    </label>
     <button type="submit" class="primary" disabled={busy}>Create and open</button>
   </form>
+  <p class="hint" id="template-hint">{TEMPLATES.find((t) => t.id === template)?.hint}</p>
 
   {#if error}
     <p class="error" role="alert">{error}</p>
