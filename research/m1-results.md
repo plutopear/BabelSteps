@@ -51,3 +51,20 @@ Checked only in the browser preview with sample data, and by build and type chec
 **Known limits:** a hotkey start can miss an edit made in the last moment before it (the editor reports unsaved edits about once a second). A failed save on close is silent. Whether Windows sign-out or shutdown runs the stop-and-save path is not known.
 
 **Still to test (needs the owner's agreement, because it records their real screen):** each hotkey, the tray menu, pause, a note, stop, closing and quitting while recording, and that no hotkey press appears as a step.
+
+## First live test in the real app (2026-11-07)
+
+Release build, the owner's desktop with their agreement, keystroke capture off, one monitor. Clicks went to a small test window of our own (sent only when it was under the point); the BabelSteps shortcuts were sent as synthetic key presses. The recording was deleted afterwards; its screenshots were not viewed.
+
+| Check | Result |
+| --- | --- |
+| Record dialog: keystrokes off by default; start from the UI | Pass. Status line "Recording · Keystrokes off" |
+| All four shortcuts register | Pass (no conflicts on this PC) |
+| Ctrl+Alt+Shift+P pauses and resumes; a click while paused is not recorded | Pass |
+| Ctrl+Alt+Shift+N focuses the note box; the note becomes a step | Pass |
+| Ctrl+Alt+Shift+R stops; R starts again from the open recording; X stops | Pass |
+| Closing the window while recording saves first; the app exits | Pass: the click just before closing is on disk |
+| No shortcut press becomes a step | Pass: 0 of 11 steps |
+| On disk after relaunch | 11 steps (5 test-window clicks, 1 note, 5 other clicks, most likely the owner's own); 10 images, 0 missing, 0 unreferenced; no window titles; no PNG metadata chunks; 0 withheld |
+
+**Not tested:** the tray icon's look and its menu (Pause, Stop, Quit), because clicking it needs real mouse input on the taskbar; quitting from the tray while recording; Windows sign-out or shutdown while recording; keystroke capture on; real apps (browsers, password fields, elevated windows).
