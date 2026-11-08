@@ -180,6 +180,11 @@ fn status_of(app: &AppHandle) -> RecordingStatus {
         st.steps = s.steps;
         st.withheld = s.withheld;
         st.warnings = s.warnings;
+        if s.elevated_in_front {
+            st.warnings.push(
+                "The window in front runs as administrator, so clicks in it are not recorded. To record administrator windows, start BabelSteps as administrator.".into(),
+            );
+        }
         if s.away {
             st.warnings.push("Not recording: the screen is locked or the computer is asleep.".into());
         }

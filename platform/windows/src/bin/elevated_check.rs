@@ -13,12 +13,16 @@
 //!
 //! Usage:
 //!   `elevated-check run <work-folder> normal|elevated`   (the driver; run as a normal user)
+//!   `elevated-check run <work-folder> both-elevated`     (the driver itself runs as administrator, started
+//!                                                         elevated by the caller; its window is elevated too.
+//!                                                         This tests the "run BabelSteps as administrator" option, Q31)
 //!   `elevated-check window <info-file> <stop-file>`      (started by the driver)
 //! The driver stops when `<work-folder>\stop.txt` exists.
 
 use anyhow::{anyhow, bail, Result};
 use babelsteps_core::storage::Bundle;
 use babelsteps_core::{Action, Block};
+use babelsteps_windows::elevation::is_elevated;
 use babelsteps_windows::testing::{self, Frame};
 use babelsteps_windows::testwin::TestWindow;
 use babelsteps_windows::{Recorder, RecorderConfig};
@@ -27,9 +31,6 @@ use std::process::ExitCode;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use windows::core::{w, HSTRING};
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
-use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -41,21 +42,6 @@ const OUTLINE: [u8; 3] = [0, 200, 0];
 
 fn ms(d: u64) {
     sleep(Duration::from_millis(d));
-}
-
-fn is_elevated() -> bool {
-    unsafe {
-        let mut token = HANDLE::default();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
-            return false;
-        }
-        let mut e = TOKEN_ELEVATION::default();
-        let mut len = 0u32;
-        let ok = GetTokenInformation(token, TokenElevation, Some(&mut e as *mut _ as *mut _), std::mem::size_of::<TOKEN_ELEVATION>() as u32, &mut len)
-            .is_ok();
-        let _ = CloseHandle(token);
-        ok && e.TokenIsElevated != 0
-    }
 }
 
 fn rect_text(r: Rect) -> String {
@@ -123,9 +109,14 @@ fn read_info(path: &Path) -> Result<Info> {
 }
 
 fn run_driver(work: &Path, mode: &str) -> Result<bool> {
-    if is_elevated() {
+    let both = mode == "both-elevated";
+    if both && !is_elevated() {
+        bail!("both-elevated needs a driver started as administrator");
+    }
+    if !both && is_elevated() {
         bail!("this driver is elevated; run it as a normal user, or the test proves nothing");
     }
+    let window_elevated_wanted = mode != "normal";
     std::fs::create_dir_all(work)?;
     let (info_file, stop_file) = (work.join("window-info.txt"), work.join("stop.txt"));
     let _ = std::fs::remove_file(&info_file);
@@ -161,7 +152,7 @@ fn run_driver(work: &Path, mode: &str) -> Result<bool> {
         return Ok(false);
     }
     let info = read_info(&info_file)?;
-    println!("test window is up; elevated={} (wanted {})", info.elevated, mode == "elevated");
+    println!("test window is up; elevated={} (wanted {})", info.elevated, window_elevated_wanted);
     println!("READY: click in the password box, the user name box and the empty green area, 2 times each; then create the stop file");
 
     let end = Instant::now() + Duration::from_secs(10 * 60);
@@ -231,12 +222,12 @@ fn run_driver(work: &Path, mode: &str) -> Result<bool> {
     drop(bundle);
     let _ = std::fs::remove_dir_all(work.join("rec"));
     println!("recording deleted: {}", !path.exists());
-    let ok = info.elevated == (mode == "elevated") && in_window > 0 && leaked == 0;
+    let ok = info.elevated == window_elevated_wanted && in_window > 0 && leaked == 0;
     if in_window == 0 {
         println!("RESULT: INCONCLUSIVE (no click in the test window was recorded; if the window was elevated, the recorder may not see clicks there)");
     } else if leaked > 0 {
         println!("RESULT: FAIL (a saved picture shows the password box)");
-    } else if info.elevated != (mode == "elevated") {
+    } else if info.elevated != window_elevated_wanted {
         println!("RESULT: INCONCLUSIVE (the window was not in the integrity level the mode asked for)");
     } else {
         println!("RESULT: PASS for this mode (every recorded click in the window was withheld or had the box black)");
@@ -248,9 +239,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("window") if args.len() == 3 => run_window(&PathBuf::from(&args[1]), &PathBuf::from(&args[2])).map(|()| true),
-        Some("run") if args.len() == 3 && (args[2] == "normal" || args[2] == "elevated") => run_driver(&PathBuf::from(&args[1]), &args[2]),
+        Some("run") if args.len() == 3 && (args[2] == "normal" || args[2] == "elevated" || args[2] == "both-elevated") => run_driver(&PathBuf::from(&args[1]), &args[2]),
         _ => {
-            eprintln!("usage: elevated-check run <work-folder> normal|elevated");
+            eprintln!("usage: elevated-check run <work-folder> normal|elevated|both-elevated");
             return ExitCode::from(2);
         }
     };
