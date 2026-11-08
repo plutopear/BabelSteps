@@ -111,3 +111,7 @@ Release build, one monitor, Windows 11, on the owner's daily PC. Every new check
 - Retention through the finished recording (the same core function the app calls): 5 files before, keep-newest-2 leaves exactly the last 2 screenshots, the other 3 files are gone, the saved document matches and keeps all 5 steps.
 
 **Not covered:** the Settings window in the real webview; the Tauri glue (re-registering shortcuts on save, the stop notice) as one flow; multiple monitors (geometry is unit tested only); Windows 10 (unsupported, Q19). The test registered its shortcuts itself, so it does not prove the app's own start-up path.
+
+## 2026-11-08: BLOCKER, the app window does not load its UI on the owner's PC
+
+The owner reports "localhost refused to connect" in the app window, first with a release exe built without `custom-protocol` (a known cause), then again with the corrected build (`--features custom-protocol`, in `targetpp-releaseelease`). Cause unknown; hypotheses: the build did not embed the frontend, or the window still points at devUrl. It was not launched in this session, so nothing here proves the corrected build loads. Untested because of this: the Settings window, the app's wiring (shortcut re-registration, stop notice), the no-socket check on a running app, and the multi-monitor path. The headless self-test (55 of 55) does not touch the app window. PR #2 must not be merged until the UI is confirmed to load.
