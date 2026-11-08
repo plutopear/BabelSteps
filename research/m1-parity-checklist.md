@@ -13,8 +13,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 ## Next actions, by who must act
 
 **Owner clicks, or an owner-approved run:**
-- Tray menu Stop, Show and Quit, and a double-click on the tray icon (the menu now opens on right-click).
-- See the red frame and the retention notice on screen.
+- Done 2026-11-08 (hand test, `research/m1-results.md`): tray Show, Quit, double-click, the red frame and the retention limit. Not stated: that the tray menu's Stop worked (the owner was asked to use it).
 - Pick a non-default library folder (C4).
 - Sign out during a recording with the window closed (tray mode).
 

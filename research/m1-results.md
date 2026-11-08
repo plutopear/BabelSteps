@@ -260,6 +260,6 @@ Hand test of the real release app (`main` at 76b17e6, owner at the keyboard, one
 - Close with X goes to the tray; right-click, Show BabelSteps brings the window back; Quit BabelSteps quits. Pass.
 - Double-click on the tray icon brings the window back after a close to the tray. Pass. (With the window already open, a double-click does nothing visible; that is not a defect.)
 - The red frame was visible while recording, and the tray icon changed while recording. Pass (seen by the owner).
-- Stop recording from the tray menu stopped the recording, and the retention limit (newest 2 steps) kept all steps and the pictures of the newest 2, as Settings says. Pass.
+- The owner was told to stop with the tray menu's Stop recording; he then reported that the retention limit (newest 2) had kept all steps and the pictures of the newest 2, as Settings says. He did not say separately that Stop worked, so Stop from the tray is likely but not stated. Retention: Pass.
 - Not covered: the tray menu's Pause entry, the exact wording of the notice (the owner did not quote it), and a second monitor.
 
