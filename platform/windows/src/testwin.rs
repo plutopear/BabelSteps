@@ -186,37 +186,13 @@ impl TestWindow {
 
     /// Click only if this window is what is actually under the point.
     pub fn safe_click(&self, x: i32, y: i32) -> Result<()> {
-        for _ in 0..50 {
-            if root_at(x, y) == self.hwnd {
-                click(x, y);
-                return Ok(());
-            }
-            thread::sleep(std::time::Duration::from_millis(100));
-        }
-        Err(anyhow!("the test window is covered at ({x}, {y}); not clicking"))
+        click_if_root(self.hwnd, x, y)
     }
 
     /// Type lowercase letters and digits as real key presses (virtual keys, the
     /// path a physical keyboard takes), only while this window has focus.
     pub fn safe_type_keys(&self, text: &str) -> Result<()> {
-        for ch in text.chars() {
-            if !(ch.is_ascii_lowercase() || ch.is_ascii_digit()) {
-                return Err(anyhow!("safe_type_keys only types a-z and 0-9"));
-            }
-            if !self.has_focus() {
-                return Err(anyhow!("the test window lost focus; stopped typing"));
-            }
-            let vk = VIRTUAL_KEY(ch.to_ascii_uppercase() as u16);
-            let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, dwFlags: flags, ..Default::default() } },
-            };
-            unsafe {
-                SendInput(&[key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)], std::mem::size_of::<INPUT>() as i32);
-            }
-            thread::sleep(std::time::Duration::from_millis(15));
-        }
-        Ok(())
+        type_if_foreground(self.hwnd, text)
     }
 
     pub fn set_red(&self, red: bool) {
@@ -324,6 +300,48 @@ unsafe fn create_window() -> Result<HWND> {
     child(w!("BUTTON"), w!("Save"), WINDOW_STYLE(BS_PUSHBUTTON as u32), 120, 100, 100, 30, ID_SAVE)?;
     let _ = UpdateWindow(hwnd);
     Ok(hwnd)
+}
+
+/// Top-level window under a screen point.
+pub fn root_window_at(x: i32, y: i32) -> isize {
+    root_at(x, y)
+}
+
+/// Click only if the top-level window `root` is what is actually under the
+/// point, waiting up to 5 s for it to be uncovered. Used for our own test
+/// window and for browser windows the self-test launched itself.
+pub fn click_if_root(root: isize, x: i32, y: i32) -> Result<()> {
+    for _ in 0..50 {
+        if root_at(x, y) == root {
+            click(x, y);
+            return Ok(());
+        }
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err(anyhow!("the test window is covered at ({x}, {y}); not clicking"))
+}
+
+/// Type lowercase letters and digits as real key presses (virtual keys, the
+/// path a physical keyboard takes), only while `root` has keyboard focus.
+pub fn type_if_foreground(root: isize, text: &str) -> Result<()> {
+    for ch in text.chars() {
+        if !(ch.is_ascii_lowercase() || ch.is_ascii_digit()) {
+            return Err(anyhow!("type_if_foreground only types a-z and 0-9"));
+        }
+        if unsafe { GetForegroundWindow() }.0 as isize != root {
+            return Err(anyhow!("the test window lost focus; stopped typing"));
+        }
+        let vk = VIRTUAL_KEY(ch.to_ascii_uppercase() as u16);
+        let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, dwFlags: flags, ..Default::default() } },
+        };
+        unsafe {
+            SendInput(&[key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)], std::mem::size_of::<INPUT>() as i32);
+        }
+        thread::sleep(std::time::Duration::from_millis(15));
+    }
+    Ok(())
 }
 
 /// Move, press, release and move back as one `SendInput` call, so real mouse

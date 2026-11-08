@@ -27,7 +27,7 @@ Milestones are sequenced by dependency, not calendar dates. Sizing and dates get
 
 **Status (2026-11-06, end of session):** the recorder is wired into the app: record dialog (keystrokes off by default), recording panel, Ctrl+Alt+Shift+R/P/N/X hotkeys (excluded from recordings), tray indicator, and stop-and-save on close and quit. Privacy audit passed. First live test passed on 2026-11-07 (`research/m1-results.md`): UI start, all hotkeys, pause, note, stop, close while recording. Not yet: the tray menu, quitting from the tray. Next, in order:
 1. Done 2026-11-07: tray menu and quit while recording pass. Clicks on the BabelSteps tray icon are no longer recorded (fixed and retested).
-2. Real apps: password fields in Edge, Chrome and Firefox; an elevated window (Q17).
+2. Real apps: Edge password fields pass (2026-11-07, 27/27, `browser-selftest`; plain and sign-in forms, "show password" button). Chrome and Firefox not installed; the owner chose Edge only. Still to do: an elevated window (Q17).
 3. Sleep, lock, resolution change; multiple monitors if the owner has a second one.
 4. The Steps Recorder parity checklist, item by item (the M1 exit).
 Not built yet: the visual cue on the capture target (C2), retention settings (A8), the single-file output decision (A9, Q2), remappable hotkeys (C3).

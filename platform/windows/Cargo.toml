@@ -21,6 +21,11 @@ name = "capture-selftest"
 path = "src/bin/capture_selftest.rs"
 required-features = ["selftest"]
 
+[[bin]]
+name = "browser-selftest"
+path = "src/bin/browser_selftest.rs"
+required-features = ["selftest"]
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
 features = [

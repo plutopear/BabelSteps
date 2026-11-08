@@ -34,3 +34,7 @@ Any synthetic input must stay safe while a person uses the PC. These protections
 - Delete full-screen images after checking them. View only `test-window-crop.png`, which is cropped to the client area so nothing behind the window shows.
 
 Use the `record` mode only with the owner's agreement. It records their real clicks and full screen, and it has no PII redaction and fails open on password detection, so it is not safe for sensitive work.
+
+## Browser password fields
+
+`target/release/browser-selftest.exe "<path to msedge.exe or chrome.exe>"` (build with `cargo build --release -p babelsteps-windows --features selftest --bins`). It opens our own test page in the browser with a throwaway profile, takes focus for about 45 seconds, and records the whole screen. The same rules apply: warn the owner and get their OK for each run, and don't view anything except the page crops it keeps in `target/browser-selftest/`.

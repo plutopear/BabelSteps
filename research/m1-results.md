@@ -78,3 +78,21 @@ Release build; the owner clicked the tray icon while a test recording ran, and c
 - Tray menu Quit while recording: saved first, then exited. On relaunch, 5 steps and 5 images, 0 missing, 0 unreferenced.
 - **Finding:** clicks on the tray icon itself (owned by the Windows taskbar, not by BabelSteps) were recorded as steps: 3 of 5, one of them naming the BabelSteps tray button. Clicks on the tray menu were not recorded (it belongs to BabelSteps). Steps Recorder leaves its own controls out, so these clicks should be dropped.
 - **Fixed the same day:** clicks inside the tray icon's rectangle (from Tauri, updated every 300 ms) and clicks on taskbar elements named "BabelSteps:..." (the icon in the hidden-icons flyout) are dropped before analysis and write nothing. Owner's retest (with an earlier "BabelSteps" prefix): pause, resume and quit from the tray; 0 tray-icon clicks recorded; 1 other taskbar click recorded, most likely the "show hidden icons" arrow (an ordinary Windows control; not confirmed). The prefix was then narrowed to "BabelSteps:" so File Explorer items can never match; that version is not retested live. Unverified: a taskbar that moves or auto-hides within 300 ms of a click.
+
+## Browser password fields (2026-11-07)
+
+New tool: `browser-selftest <browser.exe>` (feature `selftest`, release build). It opens our own local test page in a Chromium browser with a fresh temporary profile in app mode, clicks and types only when that window is under the point or focused, records with keystrokes on, and checks the real output files. Recordings and the temporary profiles are deleted afterwards; only a crop of the test page is kept.
+
+Edge 157, one monitor at 100% scaling, the owner's desktop with their agreement each run. Chrome and Firefox are not installed, and the owner chose not to install them (Edge only). Chrome uses the same engine as Edge, so it is probably covered too, but that is a guess.
+
+| Page | What it does | Result |
+| --- | --- | --- |
+| Plain (password manager off) | Clicks the password field first, before anything else has read the page's accessibility tree (Edge's first answer was wrong in M0); types; user name; button; password again | Pass. 14 of 14 checks on the first run, all checks again on the second |
+| Login form (password manager on) | User name, password, Edge's "show password" eye button, more typing after it, Sign in (the form hides, as after a real sign-in), click on the empty page | Pass |
+
+Second run: 27 of 27 checks. Both typed passwords are in no step and no file (searched as UTF-8 and UTF-16). The password field is solid black in every image while it is on the page. Typing is titled "Enter password". Controls passed: the typed user name is recorded, the user name field is not blacked out, and its cyan background sits exactly where the test expects it, so the rectangles line up. 0 withheld; slowest analysis 66 ms. The two kept crops show only the test page, with the field blacked out.
+
+**Not verified:**
+- Whether the eye button actually showed the password. The field is black in every image, and the page cannot report the state.
+- Whether Edge offered to save the password after Sign in, and what that prompt showed in the last image. Edge draws it outside the field, so redaction does not cover it. The prompt hides the password by default.
+- Password fields inside frames, fields that only look like password fields (ordinary text boxes masked by the site's own code: detection cannot see these), display scaling other than 100%, a normal browser window with tabs, Chrome, Firefox.
