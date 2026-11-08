@@ -1,6 +1,6 @@
 # Privacy and Security
 
-Privacy is a core product promise, not a feature. These guarantees are checked in CI, and any violation blocks a release.
+Privacy is a core product promise, not a feature. These guarantees are to be checked in CI, and any violation blocks a release. As of 2026-11-08 there is no CI yet: the checks run only when the `babelsteps-check` skill is run. Automating them is an M3 exit criterion (`07-definition-of-done.md`, row 3.4).
 
 ## 1. Guarantees
 

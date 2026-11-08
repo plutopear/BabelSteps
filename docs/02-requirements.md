@@ -15,7 +15,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | A6 | Record the full screen or a chosen window/monitor. | P0 |
 | A7 | Correct behavior on multi-monitor setups and mixed DPI scaling. | P0 |
 | A8 | Retention limit on recent screenshots, configurable. Steps Recorder keeps only the last 25 by default; ours defaults to unlimited with a size warning (Q12). | P1 |
-| A9 | Output a single self-contained file that opens without the app (format decision: see Q2). | P0 |
+| A9 | Output a single self-contained file that opens without the app (format decision: see Q2). For M1 the PDF export counts as this file (Q23). | P0 |
 | A10 | Open and view existing Steps Recorder output (`.zip` containing one `.mht`). | P2 |
 | A11 | With keystroke capture off, still record a step when the user types ("Typed in *User name* field"), with no text. This matches Steps Recorder. | P0 |
 
@@ -35,7 +35,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B10 | Export to single-file HTML. | P2 |
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |
 | B12 | Automatic redaction of passwords: every password field in any visible window on the captured screen is blacked out at capture on every step, and the original pixels are never stored. If the check fails or times out, the screenshot is withheld. | P0 |
-| B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). | P1 |
+| B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). Screenshot detection by local text recognition comes after the first release; M2 covers typed text plus manual review (Q27). | P1 |
 | B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. | P1 |
 
 ## C. Cross-cutting
@@ -55,12 +55,13 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | ID | Target |
 | --- | --- |
 | D1 | Idle in tray: under 50 MB RAM, near-zero CPU. Measured with "Keep running in the tray" on and the window closed (Q21). Met 2026-11-08: 6 MB, 0.3% of one core. With the window open, the app measured 147 MB on 2026-11-08, almost all of it the WebView2 engine; there is no target for that state. |
-| D2 | While recording: under 5% CPU sustained on a typical laptop, no dropped clicks. |
+| D2 | While recording: under 5% CPU sustained on a typical laptop, no dropped clicks. "Typical laptop" is one named machine, ideally 4 cores and 8 GB (Q26). |
 | D3 | Cold start to tray: under 1 second. |
 | D4 | Installer: under 20 MB. |
-| D5 | PDF export of a 100-step recording: under 10 seconds. |
+| D5 | PDF export of a 100-step recording: under 10 seconds. Measured on the Q26 laptop as well as the owner\'s desktop, with real screenshots. |
 | D6 | Click-to-screenshot latency: under 150 ms, with the "before" state captured (see Q3). Measured in M0: p95 about 11 ms. |
 | D7 | Memory while recording: under 250 MB on a 5120×1440 screen (proposed from M0's peak of about 160 MB, before the UI is added). |
+| D8 | Recording size: a typical 30-step recording under 10 MB, about Steps Recorder's (Q24, PSR-1). |
 
 ## E. IT/helpdesk and end-user training needs (decided 2026-11-02)
 
