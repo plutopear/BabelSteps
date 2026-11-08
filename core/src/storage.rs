@@ -369,6 +369,22 @@ impl Bundle {
         Ok(format!("{IMAGES_DIR}/{file_name}"))
     }
 
+    /// A8: keep screenshots for the newest `keep` steps only. The trimmed
+    /// document is saved first and files are deleted after, so a failure never
+    /// leaves a step pointing at a missing picture. `rec` is replaced by the
+    /// trimmed document only once it is saved.
+    pub fn apply_retention(&self, rec: &mut Recording, keep: usize) -> Result<RetentionOutcome> {
+        let mut trimmed = rec.clone();
+        let removed = trimmed.apply_retention(keep);
+        if removed.is_empty() {
+            return Ok(RetentionOutcome { removed: 0, failed: 0 });
+        }
+        self.save(&trimmed)?;
+        *rec = trimmed;
+        let failed = removed.iter().filter(|p| self.remove_image(p).is_err()).count();
+        Ok(RetentionOutcome { removed: removed.len(), failed })
+    }
+
     /// Delete an image given its relative path (`images/<name>`). A missing
     /// file is not an error.
     pub fn remove_image(&self, relative_path: &str) -> Result<()> {
@@ -379,6 +395,14 @@ impl Bundle {
             Err(e) => Err(e.into()),
         }
     }
+}
+
+/// What `Bundle::apply_retention` did: steps that lost their screenshot, and
+/// how many of those picture files could not be deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetentionOutcome {
+    pub removed: usize,
+    pub failed: usize,
 }
 
 fn block_id(b: &Block) -> &str {
@@ -544,6 +568,42 @@ mod tests {
         let mut r = Recording::new("rec-1", "My Guide", 1000);
         r.blocks = blocks;
         r
+    }
+
+    #[test]
+    fn retention_removes_old_files_from_disk_and_keeps_the_document_consistent() {
+        let t = TempDir::new();
+        let b = Bundle::create(t.path(), "R", "1", 1).unwrap();
+        let mut rec = Recording::new("rec-1", "R", 1);
+        for i in 0..5 {
+            let rel = b.write_image(&format!("step-{i:03}.png"), b"png").unwrap();
+            let Block::Step(mut st) = step(&format!("s{i}"), "t") else { unreachable!() };
+            st.screenshot = Some(rel);
+            rec.blocks.push(Block::Step(st));
+        }
+        b.save(&rec).unwrap();
+        let count = || fs::read_dir(b.images_dir()).unwrap().count();
+        assert_eq!(count(), 5, "control: five files before");
+        let out = b.apply_retention(&mut rec, 2).unwrap();
+        assert_eq!((out.removed, out.failed), (3, 0));
+        assert_eq!(count(), 2);
+        let saved = b.load().unwrap();
+        assert_eq!(saved, rec);
+        let shots: Vec<_> = saved
+            .blocks
+            .iter()
+            .map(|bl| match bl {
+                Block::Step(s) => s.screenshot.clone(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(&shots[..3], &[None, None, None]);
+        for p in shots[3..].iter().flatten() {
+            assert!(b.path().join(p).is_file(), "{p} kept and present");
+        }
+        assert_eq!(saved.step_count(), 5);
+        // Nothing left to remove: a second run changes nothing.
+        assert_eq!(b.apply_retention(&mut rec, 2).unwrap().removed, 0);
     }
 
     #[test]

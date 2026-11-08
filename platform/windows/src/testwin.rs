@@ -195,6 +195,84 @@ impl TestWindow {
         type_if_foreground(self.hwnd, text)
     }
 
+    pub fn hwnd_id(&self) -> isize {
+        self.hwnd
+    }
+
+    /// Move the window (always on top) so its client area touches the monitor's
+    /// bottom-right or top-left corner. The frame and caption hang off the screen.
+    pub fn place_client_flush(&self, m: (i32, i32, i32, i32), bottom_right: bool) -> Result<()> {
+        let (cx, cy, cw, ch) = self.client_rect()?;
+        let mut wr = RECT::default();
+        unsafe { GetWindowRect(self.handle(), &mut wr)? };
+        let (off_x, off_y) = (cx - wr.left, cy - wr.top);
+        let (want_x, want_y) = if bottom_right { (m.0 + m.2 - cw, m.1 + m.3 - ch) } else { (m.0, m.1) };
+        unsafe {
+            SetWindowPos(
+                self.handle(),
+                Some(HWND_TOPMOST),
+                want_x - off_x,
+                want_y - off_y,
+                wr.right - wr.left,
+                wr.bottom - wr.top,
+                SWP_NOACTIVATE,
+            )?;
+        }
+        thread::sleep(std::time::Duration::from_millis(300));
+        Ok(())
+    }
+
+    /// Back to where `create_window` put it.
+    pub fn reset_position(&self) {
+        unsafe {
+            let _ = SetWindowPos(self.handle(), Some(HWND_TOPMOST), 200, 200, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE);
+        }
+        thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    /// Screen points on this window's outermost 1 to 4 pixels at the corner it
+    /// was placed in: the corner diagonal and both edges. All are on bare
+    /// background (no control sits there).
+    pub fn edge_points(&self, bottom_right: bool) -> Result<Vec<(i32, i32)>> {
+        let (_, _, cw, ch) = self.client_rect()?;
+        let mut pts = Vec::new();
+        for i in [0, 1, 2, 3] {
+            pts.push(if bottom_right { (cw - 1 - i, ch - 1 - i) } else { (i, i) });
+        }
+        for i in [0, 3] {
+            pts.push(if bottom_right { (cw - 1 - i, ch / 2) } else { (i, ch / 2) });
+            pts.push(if bottom_right { (cw - 100, ch - 1 - i) } else { (cw / 2, i) });
+        }
+        pts.into_iter().map(|p| self.client_point(p)).collect()
+    }
+
+    /// Press a shortcut (modifiers and one key) as real key events in one
+    /// `SendInput` call, only while this window has keyboard focus.
+    pub fn safe_press(&self, ctrl: bool, alt: bool, shift: bool, vk: u32) -> Result<()> {
+        if !self.has_focus() {
+            return Err(anyhow!("the test window does not have focus; not pressing keys"));
+        }
+        let mods: Vec<VIRTUAL_KEY> = [(ctrl, VK_CONTROL), (alt, VK_MENU), (shift, VK_SHIFT)]
+            .into_iter()
+            .filter_map(|(on, k)| on.then_some(k))
+            .collect();
+        let mk = |k: VIRTUAL_KEY, up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT { wVk: k, dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) }, ..Default::default() },
+            },
+        };
+        let key = VIRTUAL_KEY(vk as u16);
+        let mut inputs: Vec<INPUT> = mods.iter().map(|k| mk(*k, false)).collect();
+        inputs.push(mk(key, false));
+        inputs.push(mk(key, true));
+        inputs.extend(mods.iter().rev().map(|k| mk(*k, true)));
+        unsafe {
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+        Ok(())
+    }
+
     pub fn set_red(&self, red: bool) {
         BG_RED.store(red, Ordering::Relaxed);
         unsafe {

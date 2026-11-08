@@ -510,10 +510,13 @@ fn frame_cue(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     use babelsteps_windows::indicator::Indicator;
     const FRAME: [u8; 3] = [220, 30, 30];
     let (bx, by) = win.background_point()?;
-    let mut measure = |excluded: bool, name: &str| -> Result<usize> {
+    let mut measure = |excluded: bool, gdi: bool, name: &str| -> Result<usize> {
         let cue = if excluded { Indicator::start()? } else { Indicator::start_unexcluded()? };
         ms(600);
         let r = start(dir, name, false)?;
+        if gdi {
+            r.faults().force_gdi.store(true, Ordering::Relaxed);
+        }
         ms(300);
         for _ in 0..3 {
             win.safe_click(bx, by)?;
@@ -541,10 +544,216 @@ fn frame_cue(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
         }
         Ok(hits)
     };
-    let control = measure(false, "cue-control")?;
-    let real = measure(true, "cue-excluded")?;
+    let control = measure(false, false, "cue-control")?;
+    let real = measure(true, false, "cue-excluded")?;
+    let control_gdi = measure(false, true, "cue-control-gdi")?;
+    let real_gdi = measure(true, true, "cue-excluded-gdi")?;
     c.check("frame cue control: the frame without the exclusion IS visible in screenshots", control > 100, format!("{control} frame-coloured edge pixels"));
     c.check("frame cue: with the exclusion, no frame pixels in any screenshot", real == 0, format!("{real} frame-coloured edge pixels"));
+    c.check("frame cue control (fallback GDI capture): the frame without the exclusion IS visible", control_gdi > 100, format!("{control_gdi} frame-coloured edge pixels"));
+    c.check("frame cue (fallback GDI capture): with the exclusion, no frame pixels in any screenshot", real_gdi == 0, format!("{real_gdi} frame-coloured edge pixels"));
+    Ok(())
+}
+
+/// C2: with the frame on, clicks on the outermost pixels of the screen still
+/// reach the window under it and are recorded for that window. The control
+/// uses a frame that is NOT click-through and must be seen to take the pixels.
+fn edge_clicks(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    use babelsteps_windows::indicator::Indicator;
+    let (bx, by) = win.background_point()?;
+    let m = monitor_of(bx, by)?;
+    let area = (m.x, m.y, m.w, m.h);
+    let result = (|| -> Result<()> {
+        for (bottom_right, name) in [(true, "bottom-right"), (false, "top-left")] {
+            win.place_client_flush(area, bottom_right)?;
+            let pts = win.edge_points(bottom_right)?;
+            let all_on_screen = pts.iter().all(|&(x, y)| m.contains(x, y));
+            let hits = |win: &TestWindow| pts.iter().filter(|&&(x, y)| babelsteps_windows::testwin::root_window_at(x, y) == win.hwnd_id()).count();
+            let blocked = {
+                let _cue = Indicator::start_opaque_to_clicks()?;
+                ms(500);
+                hits(win)
+            };
+            c.check(
+                &format!("edge clicks control ({name}): a frame that is not click-through takes the edge pixels from the window"),
+                all_on_screen && blocked == 0,
+                format!("{blocked} of {} points still reach the window; all on screen: {all_on_screen}", pts.len()),
+            );
+            let cue = Indicator::start()?;
+            ms(500);
+            let reach = hits(win);
+            c.check(
+                &format!("edge clicks ({name}): with the frame on, every edge pixel (1 to 4 px) still belongs to the window"),
+                reach == pts.len(),
+                format!("{reach} of {} points", pts.len()),
+            );
+            // Click every point and report what was recorded. `label` is the run's folder name.
+            let click_all = |label: &str| -> Result<(usize, Vec<String>, usize, usize, String)> {
+                let r = start(dir, label, false)?;
+                ms(300);
+                let mut reacted = 0;
+                let mut errors = Vec::new();
+                for &(x, y) in &pts {
+                    win.set_red(false);
+                    ms(120);
+                    match win.safe_click(x, y) {
+                        Ok(()) => {
+                            ms(80);
+                            reacted += usize::from(win.is_red());
+                        }
+                        Err(e) => errors.push(format!("{e:#}")),
+                    }
+                }
+                win.set_red(false);
+                let (_bundle, report) = stop(r)?;
+                let cl = clicks(&report.recording);
+                // The test window is a few hundred pixels wide; the frame covers a whole
+                // monitor. A step whose target is smaller than the monitor named the window.
+                let small = |s: &&&StepBlock| s.target.as_ref().and_then(|t| t.bounds).is_some_and(|b| b.w < m.w / 2 && b.h < m.h / 2);
+                let named = cl.iter().filter(small).count();
+                let seen = format!(
+                    "errors {errors:?}; target sizes {:?}",
+                    cl.iter().map(|s| s.target.as_ref().and_then(|t| t.bounds).map(|b| (b.w, b.h))).collect::<Vec<_>>()
+                );
+                Ok((reacted, errors, cl.len(), named, seen))
+            };
+            let with_frame = click_all(&format!("edge-{name}"));
+            drop(cue);
+            let (reacted, errors, steps_n, named, seen) = with_frame?;
+            // Baseline: the same clicks with no frame. What the recorder names there is the yardstick.
+            win.place_client_flush(area, bottom_right)?;
+            let (_, _, base_steps, base_named, base_seen) = click_all(&format!("edge-{name}-noframe"))?;
+            c.check(
+                &format!("edge clicks ({name}): every click reached the test window"),
+                reacted == pts.len() && errors.is_empty(),
+                format!("{reacted}/{} turned it red; refused: {errors:?}", pts.len()),
+            );
+            c.check(
+                &format!("edge clicks ({name}): every click was recorded, and named the test window (the no-frame baseline is only a yardstick: the Windows taskbar can cover the bottom screen row, so it may click fewer points)"),
+                steps_n == pts.len() && named == pts.len() && base_named == base_steps,
+                format!("with frame: {steps_n} steps, {named} naming the test window ({seen}); without: {base_steps} steps, {base_named} naming it ({base_seen})"),
+            );
+        }
+        Ok(())
+    })();
+    win.reset_position();
+    result
+}
+
+/// C3 and A8 through the recording path: remapped shortcuts fire and are left
+/// out of the steps, and keep-newest-2 on the finished recording removes the
+/// right files from disk. Shortcuts are pressed only while the test window has
+/// focus. The control run does not ignore the shortcuts and must record them.
+fn remapped_hotkeys(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    use babelsteps_core::settings::HotkeySettings;
+    use babelsteps_core::storage::Bundle;
+    use babelsteps_windows::hotkeys::{self, Hotkey};
+    let hk = HotkeySettings {
+        note: "Ctrl+Alt+Shift+F11".into(),
+        stop: "Ctrl+Alt+Shift+F12".into(),
+        ..HotkeySettings::default()
+    };
+    let specs = hk.parse().map_err(|e| anyhow!(e))?;
+    let keys: Vec<Hotkey> = specs.iter().map(Hotkey::from_spec).collect();
+    let (bx, by) = win.background_point()?;
+
+    let run = |ignore: bool, name: &str| -> Result<(Vec<bool>, Vec<usize>, PathBuf, RecorderReport)> {
+        let (handle, pressed, ok) = hotkeys::register(&keys)?;
+        let result = (|| -> Result<(PathBuf, RecorderReport)> {
+            let mut cfg = config(true);
+            if ignore {
+                cfg.ignore_keys = keys.clone();
+            }
+            let bundle_dir = dir.join(name);
+            std::fs::create_dir_all(&bundle_dir)?;
+            let bundle = babelsteps_core::storage::Bundle::create(&bundle_dir, name, name, 1)?;
+            let rec = Recording::new(name, name, 1);
+            let r = Recorder::start(bundle, rec, cfg)?;
+            win.allow_focus(true);
+            let driven = (|| -> Result<()> {
+                for i in 0..5 {
+                    win.set_red(false);
+                    ms(250);
+                    win.safe_click(bx, by)?;
+                    ms(250);
+                    if i == 0 {
+                        for _ in 0..30 {
+                            if win.has_focus() {
+                                break;
+                            }
+                            ms(100);
+                        }
+                    }
+                }
+                // The remapped "Add a note" and "Stop now" shortcuts.
+                win.safe_press(true, true, true, 0x7A)?;
+                ms(400);
+                win.safe_press(true, true, true, 0x7B)?;
+                ms(400);
+                Ok(())
+            })();
+            win.allow_focus(false);
+            let out = stop(r);
+            driven?;
+            out
+        })();
+        let presses: Vec<usize> = pressed.try_iter().collect();
+        drop(handle);
+        let (path, report) = result?;
+        Ok((ok, presses, path, report))
+    };
+    let shortcut_steps = |r: &RecorderReport| {
+        steps(&r.recording).iter().filter(|s| matches!(s.action, babelsteps_core::model::Action::Shortcut { .. })).count()
+    };
+
+    let (ok, presses, path, report) = run(true, "hk-ignored")?;
+    c.check("remapped hotkeys: all four shortcuts registered", ok.iter().all(|b| *b), format!("{ok:?} (false = another app holds it)"));
+    c.check(
+        "remapped hotkeys: the remapped note and stop shortcuts fire",
+        presses == vec![2, 3],
+        format!("pressed indexes {presses:?}, expected [2, 3]"),
+    );
+    c.check(
+        "remapped hotkeys: with them ignored, no step records either shortcut",
+        shortcut_steps(&report) == 0 && clicks(&report.recording).len() == 5,
+        format!("{} shortcut steps, {} click steps", shortcut_steps(&report), clicks(&report.recording).len()),
+    );
+
+    // Retention on the finished recording, from the saved files.
+    let bundle = Bundle::open(&path)?;
+    let mut rec = bundle.load()?;
+    let before = std::fs::read_dir(bundle.images_dir())?.count();
+    let click_shots: Vec<String> = clicks(&rec).iter().filter_map(|s| s.screenshot.clone()).collect();
+    let out = bundle.apply_retention(&mut rec, 2)?;
+    let after_files: Vec<String> =
+        std::fs::read_dir(bundle.images_dir())?.flatten().map(|e| format!("images/{}", e.file_name().to_string_lossy())).collect();
+    let with_shot: Vec<String> = steps(&rec).iter().filter_map(|s| s.screenshot.clone()).collect();
+    let reloaded = bundle.load()?;
+    c.check(
+        "retention control: five screenshots on disk before",
+        before == 5 && click_shots.len() == 5,
+        format!("{before} files, {} click screenshots", click_shots.len()),
+    );
+    c.check(
+        "retention: keep-newest-2 leaves exactly the last two screenshots, the other three files are gone",
+        out.removed == 3
+            && out.failed == 0
+            && click_shots.len() == 5
+            && with_shot == click_shots[3..]
+            && after_files.len() == 2
+            && click_shots[3..].iter().all(|p| after_files.contains(p))
+            && click_shots[..3].iter().all(|p| !bundle.path().join(p).exists()),
+        format!("removed {}, failed {}, kept {with_shot:?}, files on disk {after_files:?}", out.removed, out.failed),
+    );
+    c.check("retention: the saved document matches and keeps all five steps", reloaded == rec && reloaded.step_count() == 5, "");
+
+    // Control: the same keys, not ignored, must show up as steps.
+    let (_, _, _, control) = run(false, "hk-control")?;
+    c.check(
+        "remapped hotkeys control: without the ignore list the same shortcuts ARE recorded as steps",
+        shortcut_steps(&control) > 0,
+        format!("{} shortcut steps", shortcut_steps(&control)),
+    );
     Ok(())
 }
 
@@ -570,6 +779,8 @@ fn run(out: &Path) -> Result<Checks> {
         gdi_marked(&mut c, &win, &work)?;
         pause_and_comment(&mut c, &win, &work)?;
         frame_cue(&mut c, &win, &work)?;
+        edge_clicks(&mut c, &win, &work)?;
+        remapped_hotkeys(&mut c, &win, &work)?;
         hook_speed(&mut c, &work)?;
         Ok(())
     })();

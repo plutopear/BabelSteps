@@ -232,20 +232,18 @@ fn apply_retention(bundle: &Bundle, recording: &mut babelsteps_core::model::Reco
             )
         });
     };
-    let mut trimmed = recording.clone();
-    let removed = trimmed.apply_retention(keep as usize);
-    if removed.is_empty() {
+    let out = match bundle.apply_retention(recording, keep as usize) {
+        Ok(o) => o,
+        Err(_) => return Some("The limit on kept screenshots could not be applied because the recording could not be saved. Nothing was removed.".into()),
+    };
+    if out.removed == 0 {
         return None;
     }
-    if bundle.save(&trimmed).is_err() {
-        return Some("The limit on kept screenshots could not be applied because the recording could not be saved. Nothing was removed.".into());
-    }
-    *recording = trimmed;
-    let failed = removed.iter().filter(|p| bundle.remove_image(p).is_err()).count();
+    let (removed, failed) = (out.removed, out.failed);
     let mut msg = format!(
         "Kept screenshots for the newest {keep} steps. Removed the screenshots of {} older {}.",
-        removed.len(),
-        if removed.len() == 1 { "step" } else { "steps" }
+        removed,
+        if removed == 1 { "step" } else { "steps" }
     );
     if failed > 0 {
         msg.push_str(&format!(" {failed} picture file(s) could not be deleted and remain in the recording folder."));

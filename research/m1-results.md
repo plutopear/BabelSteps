@@ -99,4 +99,15 @@ Second run: 27 of 27 checks. Both typed passwords are in no step and no file (se
 
 ## 2026-11-08: screen frame (C2) kept out of screenshots
 
-Self-test (release build, one monitor, Windows 11, Windows Graphics Capture, 0 GDI fallbacks): 38 of 38 pass. New check: the same frame without the capture exclusion shows 118,080 frame-coloured pixels at the screen edge in saved screenshots (the control, so the check can fail); with the exclusion there are 0. Not covered: the GDI fallback capture path, Windows 10 before 2004, multiple monitors, and whether clicks on the outer 4 pixels of the screen still record correctly (no safe way to inject those clicks). Retention and remapped hotkeys have unit tests only; neither has run in the real app.
+Self-test (release build, one monitor, Windows 11, Windows Graphics Capture, 0 GDI fallbacks): 38 of 38 pass. New check: the same frame without the capture exclusion shows 118,080 frame-coloured pixels at the screen edge in saved screenshots (the control, so the check can fail); with the exclusion there are 0. The next section extends this run.
+
+
+## 2026-11-08: expanded self-test, 55 of 55 pass
+
+Release build, one monitor, Windows 11, on the owner's daily PC. Every new check has a control that can fail:
+- Frame vs screenshots, both capture methods: Graphics Capture and the forced GDI fallback each show 118,080 frame-coloured edge pixels without the capture exclusion and 0 with it.
+- Edge clicks: the test window was moved flush to the bottom-right and top-left screen corners. A frame that is not click-through takes all 8 edge points (1 to 4 px) from the window (control); the real frame takes none, all 8 clicks per corner reached the window and were recorded with the window's own bounds, not the frame's. The Windows taskbar covers the bottom screen row when no frame is up, so a no-frame baseline there is only a yardstick.
+- Remapped shortcuts (Ctrl+Alt+Shift+F11 and F12, registered for the test): both fire; with the ignore list, 0 shortcut steps and 5 click steps; without it, 2 shortcut steps (control).
+- Retention through the finished recording (the same core function the app calls): 5 files before, keep-newest-2 leaves exactly the last 2 screenshots, the other 3 files are gone, the saved document matches and keeps all 5 steps.
+
+**Not covered:** the Settings window in the real webview; the Tauri glue (re-registering shortcuts on save, the stop notice) as one flow; multiple monitors (geometry is unit tested only); Windows 10 (unsupported, Q19). The test registered its shortcuts itself, so it does not prove the app's own start-up path.
