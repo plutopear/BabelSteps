@@ -57,6 +57,8 @@ pub struct RecState {
     notice: Mutex<Option<String>>,
     /// Where the tray icon is, so the recorder ignores clicks on it.
     tray_area: Arc<Mutex<Vec<babelsteps_core::Rect>>>,
+    /// Held while the window is rebuilt from the tray.
+    window_build: Mutex<()>,
 }
 
 fn lock_active(state: &RecState) -> std::sync::MutexGuard<'_, Option<Active>> {
@@ -270,11 +272,57 @@ fn toggle_pause(app: &AppHandle) {
 }
 
 fn show_main(app: &AppHandle) {
+    show_main_for(app, false);
+}
+
+/// Bring the window back. With "keep running in the tray" the window is
+/// destroyed on close (that frees the WebView2 browser engine, most of the
+/// idle memory), so build a new one. `for_note` opens it with the note box focused.
+fn show_main_for(app: &AppHandle, for_note: bool) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        return;
     }
+    // Build off the calling thread: this runs from tray-menu handlers on the
+    // event-loop thread, where building a WebView2 window can deadlock.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let rs = app.state::<RecState>();
+        // One rebuild at a time, so two quick clicks do not race for the label.
+        let _one = rs.window_build.lock().unwrap_or_else(|e| e.into_inner());
+        if app.get_webview_window("main").is_some() {
+            return;
+        }
+        match crate::build_main_window(&app, for_note) {
+            Ok(w) => {
+                let _ = w.set_focus();
+            }
+            Err(e) => {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                app.dialog()
+                    .message(format!("BabelSteps could not open its window. Quit it from the tray menu and start it again.\n\n{e}"))
+                    .title("Window did not open")
+                    .kind(MessageDialogKind::Error)
+                    .show(|_| {});
+            }
+        }
+    });
+}
+
+/// Called when the main window is gone. Its editor can no longer save first.
+pub fn main_window_destroyed(app: &AppHandle) {
+    app.state::<RecState>().editor_unsaved.store(false, Ordering::Relaxed);
+}
+
+/// Whether an exit with no code (the last window closed) should be refused so
+/// the app stays in the tray. Closing the window stops any recording first, so
+/// a recording still running here means Windows itself is ending the app (sign
+/// out, shut down): then exit, which stops and saves.
+pub fn stay_in_tray(app: &AppHandle) -> bool {
+    let on = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).close_to_tray;
+    on && !is_recording(app)
 }
 
 /// Stop if recording. Used before the window closes or the app quits.
@@ -397,7 +445,7 @@ pub fn setup_hotkeys(app: &AppHandle) {
                     2 => {
                         if is_recording(&app) {
                             app.state::<RecState>().note_requests.fetch_add(1, Ordering::Relaxed);
-                            show_main(&app);
+                            show_main_for(&app, true);
                         }
                     }
                     3 => {
@@ -472,6 +520,12 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             _ => {}
+        })
+        // Double-click the icon to bring the window back (after a close to the tray).
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::DoubleClick { button: tauri::tray::MouseButton::Left, .. } = event {
+                show_main(tray.app_handle());
+            }
         })
         .build(app)?;
     *app.state::<RecState>().tray.lock().unwrap_or_else(|e| e.into_inner()) = Some(tray);

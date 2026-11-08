@@ -133,11 +133,20 @@ pub struct Settings {
     /// always shows the state; this only hides the frame.
     pub show_capture_border: bool,
     pub hotkeys: HotkeySettings,
+    /// Closing the window keeps BabelSteps running in the tray, so the shortcuts
+    /// still work. Off by default: closing quits, as Steps Recorder does.
+    pub close_to_tray: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { keep_screenshots: None, size_warning_mb: DEFAULT_SIZE_WARNING_MB, show_capture_border: true, hotkeys: HotkeySettings::default() }
+        Settings {
+            keep_screenshots: None,
+            size_warning_mb: DEFAULT_SIZE_WARNING_MB,
+            show_capture_border: true,
+            hotkeys: HotkeySettings::default(),
+            close_to_tray: false,
+        }
     }
 }
 
@@ -212,6 +221,7 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.keep_screenshots, None);
         assert!(s.show_capture_border);
+        assert!(!s.close_to_tray);
         assert!(s.validate().is_ok());
     }
 
@@ -219,7 +229,7 @@ mod tests {
     fn round_trips_and_missing_file_gives_defaults() {
         let p = temp("rt");
         assert_eq!(Settings::load(&p), Settings::default());
-        let s = Settings { keep_screenshots: Some(25), size_warning_mb: 200, show_capture_border: false, hotkeys: HotkeySettings::default() };
+        let s = Settings { keep_screenshots: Some(25), size_warning_mb: 200, show_capture_border: false, hotkeys: HotkeySettings::default(), close_to_tray: true };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p), s);
         assert!(!p.with_extension("json.partial").exists());
@@ -237,6 +247,8 @@ mod tests {
         // Unknown fields from a newer version are ignored.
         fs::write(&p, br#"{"keepScreenshots":10,"future":true}"#).unwrap();
         assert_eq!(Settings::load(&p).keep_screenshots, Some(10));
+        // Files from before the tray setting existed: closing still quits.
+        assert!(!Settings::load(&p).close_to_tray);
     }
 
     #[test]

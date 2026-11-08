@@ -40,15 +40,23 @@ pub fn run() {
             recording::save_settings,
         ])
         .on_window_event(|window, event| {
-            // Closing the window while recording stops and saves first.
-            // If that fails, keep the window open and say so instead of closing silently.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Closing the window while recording stops and saves first, in
+                // both close modes. If that fails, keep the window open and say
+                // so instead of closing silently. With "keep running in the tray"
+                // the window is still destroyed, to free the WebView2 engine; the
+                // exit that follows is refused in `run` below.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     if let Err(e) = recording::stop_if_recording(window.app_handle()) {
                         api.prevent_close();
                         recording::report_stop_failure(window.app_handle(), &e);
                     }
                 }
+                tauri::WindowEvent::Destroyed => recording::main_window_destroyed(window.app_handle()),
+                _ => {}
             }
         })
         .setup(|app| {
@@ -66,18 +74,7 @@ pub fn run() {
                 return Ok(());
             }
 
-            let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("BabelSteps")
-                .inner_size(1100.0, 760.0)
-                .build()?;
-            #[cfg(windows)]
-            let _ = main.with_webview(|pv| unsafe {
-                if let Ok(core) = pv.controller().CoreWebView2() {
-                    pdf::windows::harden(&core);
-                }
-            });
-            #[cfg(not(windows))]
-            let _ = main;
+            build_main_window(app.handle(), false)?;
             recording::load_settings(app.handle());
             recording::setup_hotkeys(app.handle());
             recording::setup_tray(app.handle())?;
@@ -87,6 +84,14 @@ pub fn run() {
         .expect("failed to build the app");
 
     app.run(|handle, event| {
+        // The last window closed (no exit code): with "keep running in the
+        // tray", stay running. Quit from the tray menu passes a code and exits.
+        if let tauri::RunEvent::ExitRequested { api, code: None, .. } = &event {
+            if recording::stay_in_tray(handle) && handle.tray_by_id("babelsteps").is_some() {
+                api.prevent_exit();
+                return;
+            }
+        }
         // Quitting while recording stops and saves first.
         if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             if let Err(e) = recording::stop_if_recording(handle) {
@@ -104,4 +109,22 @@ pub fn run() {
         }
         let _ = event;
     });
+}
+
+/// The main window, with our own bundled page and the WebView2 hardening.
+/// Built at start-up and again from the tray after a close-to-tray.
+/// `for_note` opens it on the note box (the "Add a note" shortcut).
+pub(crate) fn build_main_window(app: &tauri::AppHandle, for_note: bool) -> tauri::Result<tauri::WebviewWindow> {
+    let page = if for_note { "index.html#note" } else { "index.html" };
+    let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(page.into()))
+        .title("BabelSteps")
+        .inner_size(1100.0, 760.0)
+        .build()?;
+    #[cfg(windows)]
+    let _ = main.with_webview(|pv| unsafe {
+        if let Ok(core) = pv.controller().CoreWebView2() {
+            pdf::windows::harden(&core);
+        }
+    });
+    Ok(main)
 }

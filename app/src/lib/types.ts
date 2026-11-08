@@ -123,4 +123,6 @@ export interface Settings {
   sizeWarningMb: number;
   showCaptureBorder: boolean;
   hotkeys: { startStop: string; pause: string; note: string; stop: string };
+  /** Closing the window keeps BabelSteps running in the tray (default false: closing quits). */
+  closeToTray: boolean;
 }

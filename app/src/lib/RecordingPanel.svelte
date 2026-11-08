@@ -25,6 +25,16 @@
     }
   });
 
+  // The window was rebuilt from the tray by the "Add a note" shortcut, so the
+  // request above happened before this page existed.
+  $effect(() => {
+    if (location.hash === "#note") {
+      history.replaceState(null, "", location.pathname + location.search);
+      say("Add a note: type your note and press Enter.");
+      tick().then(() => noteInput?.focus());
+    }
+  });
+
   async function run(doing: string, f: () => Promise<void>) {
     error = "";
     try {

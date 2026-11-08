@@ -10,6 +10,7 @@
   let keep = $state(100);
   let sizeMb = $state(500);
   let border = $state(true);
+  let toTray = $state(false);
   const DEFAULT_KEYS = { startStop: "Ctrl+Alt+Shift+R", pause: "Ctrl+Alt+Shift+P", note: "Ctrl+Alt+Shift+N", stop: "Ctrl+Alt+Shift+X" };
   let keys = $state({ ...DEFAULT_KEYS });
   let warnings = $state<string[]>([]);
@@ -42,6 +43,7 @@
       sizeMb = s.sizeWarningMb;
       border = s.showCaptureBorder;
       keys = { ...s.hotkeys };
+      toTray = s.closeToTray;
       loaded = true;
     },
     (e) => (error = describeError(e, "reading your settings")),
@@ -61,7 +63,7 @@
     saving = true;
     try {
       warnings = await api.saveSettings({
-        keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys },
+        keepScreenshots: limit ? keep : null, sizeWarningMb: sizeMb, showCaptureBorder: border, hotkeys: { ...keys }, closeToTray: toTray,
       });
       say("Settings saved.");
       if (warnings.length === 0) onclose();
@@ -126,6 +128,22 @@
         Shortcuts change between recordings, not during one.
       </p>
       <button type="button" onclick={() => (keys = { ...DEFAULT_KEYS })}>Reset shortcuts to the defaults</button>
+    </fieldset>
+    <fieldset>
+      <legend>Closing the window</legend>
+      <label class="check">
+        <input type="radio" name="close" value={false} bind:group={toTray} disabled={!loaded} />
+        Quit BabelSteps
+      </label>
+      <label class="check">
+        <input type="radio" name="close" value={true} bind:group={toTray} disabled={!loaded} />
+        Keep running in the tray, so the shortcuts still work
+      </label>
+      <p class="hint">
+        Either way, closing the window during a recording stops and saves it first. In the tray, BabelSteps
+        uses less memory with its window closed. Double-click the tray icon or choose Show BabelSteps to open it
+        again, and Quit BabelSteps in the tray menu to quit.
+      </p>
     </fieldset>
     {#if savedOk}
       <p class="warn-line" role="status">Settings saved, with warnings:</p>
