@@ -319,6 +319,20 @@ mod tests {
         rec
     }
 
+    /// Every tag in `html` is one the exporter emits, so no text became markup.
+    fn assert_only_our_tags(html: &str) {
+        let mut rest = html;
+        let allowed = ["html", "head", "meta", "title", "style", "body", "h1", "h2", "h3", "p", "div", "section", "span", "figure", "figcaption", "img", "ul", "li", "br", "u", "code", "strong", "em"];
+        while let Some(p) = rest.find('<') {
+            rest = &rest[p + 1..];
+            let name: String = rest.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            if name.is_empty() || name == "DOCTYPE" || rest.starts_with('!') {
+                continue;
+            }
+            assert!(allowed.contains(&name.as_str()), "unexpected tag <{name}");
+        }
+    }
+
     #[test]
     fn hostile_content_is_inert() {
         let html = to_html(&evil_recording());
@@ -331,17 +345,31 @@ mod tests {
         // No attribute could be broken out of: the raw quote never follows src=.
         assert!(!html.contains("\"onerror"));
         assert!(!html.contains("\"><script"));
-        // Only the tags we emit exist.
-        let mut rest = html.as_str();
-        let allowed = ["html", "head", "meta", "title", "style", "body", "h1", "h2", "h3", "p", "div", "section", "span", "figure", "figcaption", "img", "ul", "li", "br", "u", "code", "strong", "em"];
-        while let Some(p) = rest.find('<') {
-            rest = &rest[p + 1..];
-            let name: String = rest.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
-            if name.is_empty() || name == "DOCTYPE" || rest.starts_with('!') {
-                continue;
+        assert_only_our_tags(&html);
+    }
+
+    #[test]
+    fn single_file_hostile_text_and_picture_values_stay_inert() {
+        // Same hostile text as the folder export, but with valid picture paths so
+        // the single-file branch really embeds pictures next to it.
+        let mut rec = evil_recording();
+        for b in &mut rec.blocks {
+            match b {
+                Block::Image { image, .. } => *image = "images/a.png".into(),
+                Block::Step(s) => s.screenshot = Some("images/b.png".into()),
+                _ => {}
             }
-            assert!(allowed.contains(&name.as_str()), "unexpected tag <{name}");
         }
+        let mut images = EmbeddedImages::new();
+        images.insert("images/a.png".into(), "data:image/png;base64,AAAA".into());
+        // A prepared value that tries to leave its attribute must be escaped.
+        images.insert("images/b.png".into(), "data:image/png;base64,\" onerror=\"alert(6)".into());
+        let html = to_single_html_with(&rec, &ExportOptions::default(), &images);
+        assert!(!html.contains("<script"), "script tag leaked");
+        assert!(!html.contains("<img src=x") && !html.contains("<u onclick"));
+        assert!(!html.contains("\" onerror="), "attribute break-out in a picture value");
+        assert_eq!(html.matches("<img ").count(), 2);
+        assert_only_our_tags(&html);
     }
 
     #[test]
