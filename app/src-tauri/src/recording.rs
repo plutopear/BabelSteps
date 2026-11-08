@@ -830,12 +830,19 @@ pub fn get_settings(app: AppHandle) -> Settings {
 /// uses, and shortcuts likely to clash with other programs.
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<Vec<String>> {
+    apply_settings(&app, settings)
+}
+
+/// The one way settings change: validate, normalize the shortcuts, save, apply.
+/// The settings form and an import both go through here, so an import is
+/// checked exactly like a save (including two actions on one shortcut).
+fn apply_settings(app: &AppHandle, settings: Settings) -> AppResult<Vec<String>> {
     settings.validate().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
     let mut settings = settings;
     let hotkeys_changed;
     settings.hotkeys = settings.hotkeys.normalized().map_err(|m| AppError::new(ErrorKind::InvalidArgument, m))?;
     let rs = app.state::<RecState>();
-    let path = settings_path(&app)?;
+    let path = settings_path(app)?;
     {
         // `start` holds this lock while it reads the shortcuts, so a recording
         // cannot begin between the check and the change.
@@ -850,9 +857,66 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> AppResult<Vec<String
         *rs.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     }
     if hotkeys_changed {
-        setup_hotkeys(&app);
+        setup_hotkeys(app);
     }
-    Ok(hotkey_warnings(&app))
+    Ok(hotkey_warnings(app))
+}
+
+/// A real settings file is under 1 KB. Refuse anything much bigger before reading it.
+const MAX_SETTINGS_FILE_BYTES: u64 = 64 * 1024;
+
+/// C7: write the saved settings (not the unsaved form) to a file the user chose.
+/// Machine-specific settings stay out; see `Settings::to_export_json`.
+#[tauri::command]
+pub fn export_settings(app: AppHandle, path: String) -> AppResult<()> {
+    let path = settings_file_path(&path)?;
+    let text = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).to_export_json();
+    std::fs::write(&path, text).map_err(|e| AppError::new(ErrorKind::Storage, format!("the settings file was not written: {e}")))
+}
+
+/// C7: read a settings file the user chose and apply it like a normal save.
+/// A file that fails the strict check changes nothing. Error messages never
+/// repeat what the file holds. Returns the same warnings as `save_settings`.
+#[tauri::command]
+pub fn import_settings(app: AppHandle, path: String) -> AppResult<Vec<String>> {
+    use std::io::Read;
+    let path = settings_file_path(&path)?;
+    let file = std::fs::File::open(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            AppError::new(ErrorKind::NotFound, "the settings file was not found")
+        } else {
+            AppError::new(ErrorKind::Storage, "the settings file could not be opened")
+        }
+    })?;
+    let mut bytes = Vec::new();
+    file.take(MAX_SETTINGS_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| AppError::new(ErrorKind::Storage, "the settings file could not be read"))?;
+    if bytes.len() as u64 > MAX_SETTINGS_FILE_BYTES {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "This file is too big to be a settings file."));
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|_| AppError::new(ErrorKind::InvalidArgument, "This file is not a BabelSteps settings export."))?;
+    let current = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let merged = current.import_json(&text).map_err(|e| AppError::new(ErrorKind::InvalidArgument, e.to_string()))?;
+    let notes = current.privacy_notes(&merged);
+    let mut out: Vec<String> = notes.into_iter().map(String::from).collect();
+    out.extend(apply_settings(&app, merged)?);
+    Ok(out)
+}
+
+/// A settings file must be a full local `.json` path. Network paths are
+/// refused, so a chosen path cannot open a connection to another machine.
+fn settings_file_path(p: &str) -> AppResult<std::path::PathBuf> {
+    let path = crate::commands::require_absolute(p, "the settings file")?;
+    if p.starts_with("\\\\") || p.starts_with("//") {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the settings file must be on this computer"));
+    }
+    let is_json = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if !is_json {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the settings file must end in .json"));
+    }
+    Ok(path)
 }
 
 fn hotkey_warnings(app: &AppHandle) -> Vec<String> {

@@ -39,6 +39,8 @@ pub fn run() {
             recording::clear_notice,
             recording::get_settings,
             recording::save_settings,
+            recording::export_settings,
+            recording::import_settings,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
