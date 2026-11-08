@@ -27,6 +27,7 @@ pub mod os;
 mod pipeline;
 mod scan;
 pub mod scope;
+mod session;
 mod uia;
 
 #[cfg(feature = "selftest")]
@@ -43,4 +44,5 @@ pub mod testing {
     pub use crate::hooks::stats as hook_stats;
     pub use crate::monitors::{enumerate as monitors, make_thread_dpi_aware, per_monitor_dpi_aware, Monitor};
     pub use crate::scope::window_bounds;
+    pub use crate::session::SessionEvent;
 }

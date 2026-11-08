@@ -24,6 +24,7 @@ use crate::keys::KeyTracker;
 use crate::monitors;
 use crate::scan::{self, PasswordMemory, WinState};
 use crate::scope::{self, Scope};
+use crate::session::{self, SessionEvent, SessionWatcher};
 use crate::uia::{ElementInfo, UiaFaults, UiaPool, UiaStats};
 use anyhow::{bail, Result};
 use babelsteps_core::normalize::{Event, Key, Mods, Normalizer, NormalizerConfig};
@@ -164,6 +165,10 @@ pub struct RecorderStatus {
     pub uia: UiaStats,
     /// Set when the chosen window has closed or the chosen monitor is gone.
     pub scope_lost: Option<String>,
+    /// The screen is locked or the machine is asleep, so nothing is being recorded (PSR-10).
+    pub away: bool,
+    /// How many times the person went away (lock, sleep, switching user) in this recording.
+    pub away_periods: u32,
     /// Things the user should know, such as "screenshots withheld: a window could not be checked".
     pub warnings: Vec<String>,
 }
@@ -209,6 +214,9 @@ enum Captured {
     Click { button: MouseButton, x: i32, y: i32, t: i64, shot: Option<Shot> },
     Key { key: Key, mods: Mods, t: i64, shot: Option<Shot> },
     Foreground { hwnd: isize, t: i64 },
+    /// The person went away (lock or sleep): a typing run ends here.
+    Away,
+    Back,
     Control(Control),
 }
 
@@ -228,6 +236,8 @@ pub struct Recorder {
     capture: Option<JoinHandle<()>>,
     analysis: Option<JoinHandle<Recording>>,
     writer_done: Receiver<(Bundle, Vec<String>)>,
+    /// Hears lock, unlock, sleep and wake. Dropped with the recorder.
+    session: Option<SessionWatcher>,
     started: Instant,
     /// `hooks::stats().dropped` when this recording started.
     dropped_at_start: u64,
@@ -285,10 +295,29 @@ impl Recorder {
         };
         let hooks = Arc::new(Mutex::new(Some(hook_handle)));
         let (ctrl_tx, ctrl_rx) = unbounded::<(i64, Control)>();
+        // If the watcher cannot start, recording goes on without it, and says so.
+        let (session, session_rx) = match session::watch() {
+            Ok((w, rx)) => {
+                if !w.session_notices {
+                    status.lock().unwrap_or_else(|e| e.into_inner()).warnings.push(
+                        "Windows would not report screen locks, so a lock during this recording may not be noticed (sleep still is).".into(),
+                    );
+                }
+                (Some(w), rx)
+            }
+            Err(e) => {
+                status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .warnings
+                    .push(format!("Lock and sleep are not watched during this recording: {e:#}"));
+                (None, crossbeam_channel::never())
+            }
+        };
         let capture = {
             let (faults, status, hooks) = (faults.clone(), status.clone(), hooks.clone());
             thread::Builder::new().name("step-capture".into()).spawn(move || {
-                capture_loop(raw_rx, ctrl_rx, cap_tx, hooks, faults, status, in_flight, opts);
+                capture_loop(raw_rx, ctrl_rx, session_rx, cap_tx, hooks, faults, status, in_flight, opts);
             })?
         };
         Ok(Recorder {
@@ -299,6 +328,7 @@ impl Recorder {
             capture: Some(capture),
             analysis: Some(analysis),
             writer_done: done_rx,
+            session,
             started: Instant::now(),
             dropped_at_start,
         })
@@ -330,6 +360,13 @@ impl Recorder {
         &self.faults
     }
 
+    /// Self-test: send the recorder the message Windows sends on lock, unlock,
+    /// sleep and wake, through the real hidden window. False if nothing is watching.
+    #[cfg(feature = "selftest")]
+    pub fn simulate_session(&self, e: SessionEvent) -> bool {
+        self.session.as_ref().map(|s| s.simulate(e)).is_some()
+    }
+
     /// Stop, finish every step, write the remaining images, and save. Returns the
     /// bundle so the caller can keep using it.
     pub fn stop(mut self) -> Result<(Bundle, RecorderReport)> {
@@ -338,6 +375,7 @@ impl Recorder {
             h.stop();
         }
         self.send(Control::Stop);
+        self.session = None;
         if let Some(c) = self.capture.take() {
             let _ = c.join();
         }
@@ -411,6 +449,7 @@ fn foreground_is_own() -> bool {
 fn capture_loop(
     raw: Receiver<RawEvent>,
     ctrl: Receiver<(i64, Control)>,
+    session: Receiver<(i64, SessionEvent)>,
     out: Sender<Captured>,
     hooks: Arc<Mutex<Option<HookHandle>>>,
     faults: Arc<Faults>,
@@ -425,6 +464,9 @@ fn capture_loop(
     let mut capturer = Capturer::start();
     let mut keys = KeyTracker::new();
     let mut paused = false;
+    let mut session = session;
+    let mut away = session::Away::default();
+    let mut away_periods = 0u32;
     let mut last_was_text = false;
     let mut last_check = Instant::now();
     // An input event read ahead while lining up a control message.
@@ -482,7 +524,7 @@ fn capture_loop(
             status.lock().unwrap_or_else(|e| e.into_inner()).scope_lost = lost;
         }
         if let Some(ev) = held.take() {
-            handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+            handle_raw(ev, paused, away.is_away(), &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
             continue;
         }
         let ev = select! {
@@ -494,7 +536,7 @@ fn capture_loop(
                 // Pause is recorded, and a comment lands between the right steps.
                 while let Ok(ev) = raw.try_recv() {
                     if ev.t() <= sent || stop {
-                        handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+                        handle_raw(ev, paused, away.is_away(), &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
                     } else {
                         held = Some(ev);
                         break;
@@ -514,9 +556,52 @@ fn capture_loop(
                 let _ = out.send(Captured::Control(c));
                 continue;
             },
+            recv(session) -> s => {
+                let Ok((heard, e)) = s else {
+                    session = crossbeam_channel::never(); // The watcher is gone: stop listening.
+                    if away.is_away() {
+                        status.lock().unwrap_or_else(|e| e.into_inner()).warnings.push(
+                            "Lock and sleep are no longer watched, and recording is paused by the last one. Stop and start again.".into(),
+                        );
+                    }
+                    continue;
+                };
+                // Input from before the lock still counts.
+                while let Ok(ev) = raw.try_recv() {
+                    if ev.t() <= heard {
+                        handle_raw(ev, paused, away.is_away(), &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+                    } else {
+                        held = Some(ev);
+                        break;
+                    }
+                }
+                match away.apply(e) {
+                    Some(true) => {
+                        away_periods += 1;
+                        last_was_text = false;
+                        let _ = out.send(Captured::Away);
+                    }
+                    Some(false) => {
+                        // Back: every kept frame is from before, and a modifier key
+                        // may have been released while nothing was listening.
+                        capturer.reset();
+                        keys = KeyTracker::new();
+                        last_was_text = false;
+                        let _ = out.send(Captured::Back);
+                    }
+                    None => {}
+                }
+                {
+                    let mut st = status.lock().unwrap_or_else(|e| e.into_inner());
+                    st.away = away.is_away();
+                    st.away_periods = away_periods;
+                }
+                publish_capture(&status, &capturer, &in_flight, &over_budget);
+                continue;
+            },
             default(Duration::from_millis(250)) => continue,
         };
-        handle_raw(ev, paused, &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
+        handle_raw(ev, paused, away.is_away(), &opts, &mut keys, &mut last_was_text, &mut capturer, &mut grab, &out);
     }
     let _ = out.send(Captured::Control(Control::Stop));
 }
@@ -534,6 +619,7 @@ fn publish_capture(status: &Mutex<RecorderStatus>, capturer: &Capturer, in_fligh
 fn handle_raw(
     ev: RawEvent,
     paused: bool,
+    away: bool,
     opts: &CaptureOpts,
     keys: &mut KeyTracker,
     last_was_text: &mut bool,
@@ -541,6 +627,11 @@ fn handle_raw(
     grab: &mut impl FnMut(&mut Capturer, i32, i32, i64, Option<Vec<Rect>>) -> Option<Shot>,
     out: &Sender<Captured>,
 ) {
+    if away {
+        // Locked or asleep: not the person's to document (PSR-10).
+        *last_was_text = false;
+        return;
+    }
     match ev {
         RawEvent::MouseDown { button, x, y, t, injected } => {
             let in_ignored_area = opts
@@ -814,6 +905,15 @@ impl Analysis {
                 if let Some(w) = scan::current_state(hwnd) {
                     let _ = self.scan_windows(&[w], t);
                 }
+            }
+            Captured::Away => {
+                // A typing run does not carry across a lock.
+                let blocks = self.norm.push(Event::FocusChanged { t_ms: clock::unix_ms() });
+                self.emit(blocks);
+            }
+            Captured::Back => {
+                let blocks = self.norm.push(Event::FocusChanged { t_ms: clock::unix_ms() });
+                self.emit(blocks);
             }
             Captured::Control(Control::Pause) => {
                 let blocks = self.norm.push(Event::Pause);
