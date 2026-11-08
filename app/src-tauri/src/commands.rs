@@ -6,7 +6,10 @@
 
 use crate::error::{AppError, AppResult, ErrorKind};
 use crate::pdf::{export_pdf_with, PdfExportError};
-use babelsteps_core::export::{export_markdown_with as core_export_markdown, validate_image_path, ExportReport};
+use babelsteps_core::export::{
+    export_markdown_with as core_export_markdown, export_single_html_with as core_export_single_html, validate_image_path,
+    ExportReport,
+};
 use babelsteps_core::export_options::ExportOptions;
 use babelsteps_core::model::Recording;
 use babelsteps_core::storage::{delete_bundle, library, Bundle};
@@ -413,4 +416,33 @@ pub fn map_pdf_error(e: PdfExportError) -> AppError {
         ),
         PdfExportError::Io(m) => AppError::new(ErrorKind::Storage, m),
     }
+}
+
+/// Export the saved document as one self-contained `.html` file (B10): the
+/// pictures are embedded with their redactions burned in, and nothing is loaded
+/// from outside the file.
+#[tauri::command]
+pub async fn export_single_html(app: AppHandle, out_path: String, choices: Option<ExportChoices>) -> AppResult<ExportSummary> {
+    let opts = choices.unwrap_or_default().to_options();
+    let out = require_absolute(&out_path, "the HTML path")?;
+    if !out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("html")) {
+        return Err(AppError::new(ErrorKind::InvalidArgument, "the file name must end in .html"));
+    }
+    ensure_idle(&app.state::<RecState>())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _busy = state
+            .export_lock
+            .try_lock()
+            .map_err(|_| AppError::new(ErrorKind::Busy, "another export is running"))?;
+        let (rec, dir) = {
+            let guard = lock_current(&state);
+            let bundle = guard.as_ref().ok_or_else(no_recording)?;
+            outside_bundle(bundle, &out)?;
+            (bundle.load()?, bundle.path().to_path_buf())
+        };
+        Ok(core_export_single_html(&rec, &dir, &out, &opts)?.into())
+    })
+    .await
+    .map_err(|e| AppError::new(ErrorKind::Export, format!("export task failed: {e}")))?
 }
