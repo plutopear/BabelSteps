@@ -431,7 +431,7 @@ fn process_click(
     rec.blocks.push(Block::Step(StepBlock {
         id: format!("step-{step_no:03}"),
         action: Action::Click { button, x, y },
-        title: describe_click(button, x, y, target.as_ref()),
+        title: describe_click(button, x, y, target.as_ref(), false),
         description: String::new(),
         screenshot: Some(rel),
         target,
