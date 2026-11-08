@@ -38,9 +38,13 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             // Closing the window while recording stops and saves first.
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            // If that fails, keep the window open and say so instead of closing silently.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    recording::stop_if_recording(window.app_handle());
+                    if let Err(e) = recording::stop_if_recording(window.app_handle()) {
+                        api.prevent_close();
+                        recording::report_stop_failure(window.app_handle(), &e);
+                    }
                 }
             }
         })
@@ -80,8 +84,11 @@ pub fn run() {
 
     app.run(|handle, event| {
         // Quitting while recording stops and saves first.
-        if let tauri::RunEvent::ExitRequested { .. } = &event {
-            recording::stop_if_recording(handle);
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            if let Err(e) = recording::stop_if_recording(handle) {
+                api.prevent_exit();
+                recording::report_stop_failure(handle, &e);
+            }
         }
         // The headless self-test has no windows; do not exit when the print
         // window closes.

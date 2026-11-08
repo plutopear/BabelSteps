@@ -48,7 +48,7 @@ Built, privacy-audited (PASS), not yet run in the real app:
 
 Checked only in the browser preview with sample data, and by build and type checks.
 
-**Known limits:** a hotkey start can miss an edit made in the last moment before it (the editor reports unsaved edits about once a second). A failed save on close is silent. Whether Windows sign-out or shutdown runs the stop-and-save path is not known.
+**Known limits:** a hotkey start can miss an edit made in the last moment before it (the editor reports unsaved edits about once a second). A failed stop on close now keeps the window open and shows an error dialog (written 2026-11-08, not compiled or run yet: it needs a Windows build). Whether Windows sign-out or shutdown runs the stop-and-save path is not known.
 
 **Still to test (needs the owner's agreement, because it records their real screen):** each hotkey, the tray menu, pause, a note, stop, closing and quitting while recording, and that no hotkey press appears as a step.
 
