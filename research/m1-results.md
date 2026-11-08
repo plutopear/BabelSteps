@@ -243,3 +243,23 @@ Live test on the owner's PC (one monitor, normal use) with the owner at the keyb
 - **Sleep:** away from the Sleep click to the wake, 46.4 s. No click step during that time. The Sleep click itself and the Win+L shortcut were recorded, because they happened just before the away flag (as designed: input before the message still counts).
 - **After each return:** the next clicks were recorded straight away (1.4 s after the unlock, 1.7 s after the wake). `capture_rebuilds` went 0 to 1 to 2, the hooks were reinstalled both times (`hook_rehooks` 2), `not_verified` 0, `withheld` 0, `no_screenshot` 0, `missed_inputs` 0, no warnings. 19 steps in all: 17 clicks and 2 shortcut-type steps.
 - **What this could not catch:** whether the first picture after each return was the current screen (the log has no picture content; the self-test `lock_and_sleep` checks that on its own window), clicks on the lock screen itself (hooks do not see that desktop), a long lock, and resolution or scaling changes. The two `other` steps were not identified (one is the Win+L shortcut; the second, at the end, is probably a key press by the owner; a guess).
+
+## 2026-11-08: Resolution and scaling change (PSR-10)
+
+Live test on the owner's PC (one 5120x1440 monitor, normal use, owner at the keyboard), tool `lock-live` (same as 'Real lock and sleep', current `main`). The owner clicked, changed the display scale, changed the resolution, and changed both back, clicking a few times after each change; the whole run took about 1 minute, so the changes were close together. One run.
+
+- **Capture rebuilds:** 2 (the first about 39 s in, the second about 50 s in). A guess: they match the two resolution changes. The scale changes alone should not change the monitor's size in physical pixels, which our process sees because it is per-monitor DPI aware, so they need no rebuild. The log cannot tell which change caused which rebuild.
+- **Steps:** 23 steps, 17 clicks and 6 other steps (shortcut-type steps, probably keys used to open Settings; a guess). No `missed_inputs`, no re-installed hooks, nothing withheld, every step has a picture.
+- **Flag working:** `not_verified` 2, with the warning "2 screenshot(s) may show the moment after the action". These are the pictures taken right after a rebuild, before the first fresh frame arrived. That is the intended behaviour: no wrong 'before the click' label. It also means 2 of 23 steps lost the before-the-click guarantee around a resolution change.
+- **Final state:** 5120x1440 at 100%, as before.
+- **What this could not catch:** whether the pictures were right (the outline and marker positions, the picture size) after each change, because the log holds no picture content and the screen was not looked at; the app's red frame and tray icon during a change (this tool has no frame); a second monitor; the timing of each change against each rebuild.
+
+## 2026-11-08: Tray menu, red frame, retention notice (hand test with the owner)
+
+Hand test of the real release app (`main` at 76b17e6, owner at the keyboard, one run). The owner reported:
+- Close with X goes to the tray; right-click, Show BabelSteps brings the window back; Quit BabelSteps quits. Pass.
+- Double-click on the tray icon brings the window back after a close to the tray. Pass. (With the window already open, a double-click does nothing visible; that is not a defect.)
+- The red frame was visible while recording, and the tray icon changed while recording. Pass (seen by the owner).
+- The owner was told to stop with the tray menu's Stop recording; he then reported that the retention limit (newest 2) had kept all steps and the pictures of the newest 2, as Settings says. He did not say separately that Stop worked, so Stop from the tray is likely but not stated. Retention: Pass.
+- Not covered: the tray menu's Pause entry, the exact wording of the notice (the owner did not quote it), and a second monitor.
+
