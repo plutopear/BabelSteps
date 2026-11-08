@@ -345,7 +345,24 @@ fn window_changes_after_click(c: &mut Checks, win: &TestWindow, dir: &Path) -> R
                 if all_black(&f, pass) {
                     "image with the field black".to_string()
                 } else {
-                    "IMAGE WITH THE FIELD VISIBLE".to_string()
+                    // Diagnostics: is it real content, or noise from how the file stores black?
+                    let (x, y, w, h) = pass;
+                    let mut brightest = 0u8;
+                    let mut over = 0usize;
+                    let mut total = 0usize;
+                    for py in y + 1..y + h - 1 {
+                        for px in x + 1..x + w - 1 {
+                            if let Some(c) = f.sample(px, py) {
+                                total += 1;
+                                let v = c.into_iter().max().unwrap_or(0);
+                                brightest = brightest.max(v);
+                                over += usize::from(v >= 10 && c != MARKER);
+                            }
+                        }
+                    }
+                    format!(
+                        "IMAGE WITH THE FIELD VISIBLE (file {rel}; {over} of {total} field pixels are not black, brightest channel {brightest})"
+                    )
                 }
             }
             None => "no image".to_string(),
