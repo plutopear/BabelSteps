@@ -88,7 +88,8 @@ impl Frame {
         }
     }
 
-    /// A red ring around a virtual-desktop point (Steps Recorder's click marker).
+    /// A red ring around a virtual-desktop point. Our own click marker (A2): Steps
+    /// Recorder marks only the element, with a green rectangle.
     pub fn draw_click_marker(&mut self, sx: i32, sy: i32) {
         let (cx, cy) = (i64::from(sx - self.origin_x), i64::from(sy - self.origin_y));
         const R_OUT: i64 = 20;
