@@ -211,8 +211,15 @@ impl Normalizer {
 
     /// Element names and window titles come from the screen and can hold
     /// customer data ("Signed in as a@b.co"), so they are scrubbed like typed text.
+    /// A window, title bar, document or pane is named after the window or page
+    /// title (a click on empty window space or a title bar, or on a web page's
+    /// background, or a tab), so its name is dropped entirely (A3, privacy doc
+/// section 1).
     fn scrub_target(&self, target: Option<Target>) -> Option<Target> {
         target.map(|mut t| {
+            if names_a_title(&t.control_type) {
+                t.name.clear();
+            }
             t.name = pii::scrub(&t.name, &self.config.custom);
             t.window_title = t.window_title.map(|w| pii::scrub(&w, &self.config.custom));
             t
@@ -446,6 +453,18 @@ fn mark_password(target: &mut Option<Target>, yes: bool) {
     if let (true, Some(t)) = (yes, target.as_mut()) {
         t.is_password = true;
     }
+}
+
+/// Control types whose accessible name is usually the window or page title.
+/// Windows UI Automation names; macOS roles get added with the macOS backend.
+/// Panes are included because top-level panes (Chromium's, for one) carry the
+/// window title, and a pane's name rarely helps a reader. Tab items carry the
+/// page, file or folder title. Known gap: taskbar and task-switcher buttons and
+/// the caption text in newer title bars are named after the window title too,
+/// and are not caught here.
+fn names_a_title(control_type: &str) -> bool {
+    let c = control_type.trim().to_lowercase();
+    matches!(c.as_str(), "window" | "title bar" | "titlebar" | "document" | "pane" | "tab item")
 }
 
 fn field_name(target: Option<&Target>) -> Option<&str> {
@@ -1385,5 +1404,60 @@ mod tests {
             screenshot: None,
         });
         assert_eq!(one(&n.finish()).captured_unix_ms, 100);
+    }
+
+    fn click_on(control_type: &str, name: &str) -> Event {
+        Event::Click {
+            t_ms: 20,
+            button: MouseButton::Left,
+            x: 7,
+            y: 8,
+            target: Some(Target { name: name.to_string(), control_type: control_type.to_string(), process_name: "app.exe".to_string(), ..Default::default() }),
+            signals: CLEAN,
+            screenshot: None,
+        }
+    }
+
+    /// A click on empty window space, a title bar or a page background hits an
+    /// element named after the window or page title: that name must not reach the
+    /// step title or the saved target (A3).
+    #[test]
+    fn title_named_elements_lose_their_name() {
+        const TITLE: &str = "Q3 salaries draft";
+        for ct in ["Window", "Title bar", "Document", "Pane", " window ", "TitleBar", "Tab item"] {
+            let mut n = normalizer(false);
+            let blocks = n.push(click_on(ct, TITLE));
+            let step = one(&blocks);
+            assert!(!step.title.contains(TITLE), "{ct}: {}", step.title);
+            assert_eq!(step.target.as_ref().map(|t| t.name.as_str()), Some(""), "{ct}");
+            assert!(!serde_json::to_string(&blocks).unwrap().contains(TITLE), "{ct}");
+            assert!(step.title.contains("(7, 8)"), "{ct}: falls back to coordinates: {}", step.title);
+        }
+        // Control: an ordinary control keeps its name, so the check above can fail.
+        let mut n = normalizer(false);
+        let blocks = n.push(click_on("Button", TITLE));
+        assert!(one(&blocks).title.contains(TITLE));
+    }
+
+    /// Typing into a document (a word processor's page) must not name the run
+    /// after the document's title either.
+    #[test]
+    fn typing_into_a_document_does_not_use_its_title() {
+        const TITLE: &str = "Q3 salaries draft";
+        let mut n = normalizer(false);
+        let mut out = Vec::new();
+        for c in "abc".chars() {
+            out.extend(n.push(Event::Key {
+                t_ms: 10,
+                key: Key::Text(c.to_string()),
+                mods: Mods::default(),
+                target: Some(Target { name: TITLE.to_string(), control_type: "Document".to_string(), process_name: "app.exe".to_string(), ..Default::default() }),
+                signals: CLEAN,
+                screenshot: None,
+            }));
+        }
+        out.extend(n.finish());
+        assert!(!steps(&out).is_empty());
+        assert!(!serde_json::to_string(&out).unwrap().contains(TITLE), "{:?}", titles(&out));
     }
 }

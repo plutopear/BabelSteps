@@ -16,6 +16,8 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 
 **Needs hardware or the owner's machine state:** A7 and the monitor half of A6 (a second monitor, Q20), PSR-8 (an elevated window and a UAC prompt, Q17), PSR-10 (sleep, lock, resolution change).
 
+**Found while building this checklist (2026-11-08):** a click on empty window space, a title bar, a page background or a tab put the window or page title into the step title and `recording.json`, against A3. Fixed in the core the same day (names of those element types are dropped; unit tested). New self-test checks for A11, A2 and A3, including this one, are written and wait for an owner-approved run. Known gap: taskbar buttons and caption text in newer title bars.
+
 **Claude can build without the owner:** smaller stored images (PSR-1), the window-or-monitor choice (A6, Q13), the opt-in full window title (A3).
 
 ## Summary

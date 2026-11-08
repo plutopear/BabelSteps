@@ -510,7 +510,7 @@ fn frame_cue(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     use babelsteps_windows::indicator::Indicator;
     const FRAME: [u8; 3] = [220, 30, 30];
     let (bx, by) = win.background_point()?;
-    let mut measure = |excluded: bool, gdi: bool, name: &str| -> Result<usize> {
+    let measure = |excluded: bool, gdi: bool, name: &str| -> Result<usize> {
         let cue = if excluded { Indicator::start()? } else { Indicator::start_unexcluded()? };
         ms(600);
         let r = start(dir, name, false)?;
@@ -757,6 +757,101 @@ fn remapped_hotkeys(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> 
     Ok(())
 }
 
+/// The outline's exact colour (`Frame::outline`), distinct from the test
+/// window's green background.
+const OUTLINE: [u8; 3] = [0, 200, 0];
+const TYPED_OFF: &str = "carol";
+
+/// A11, A3 and A2 on our own window, keystrokes off: typing becomes one
+/// "Typed in" step with no text; click titles name the control and app but never
+/// the window title, right clicks included; the outline and click marker are
+/// drawn where they belong.
+fn titles_typing_outline(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
+    let window_title = win.title();
+    let r = start(dir, "titles", false)?;
+    win.allow_focus(true);
+    let acted = (|| -> Result<()> {
+        let (x, y) = win.user_center()?;
+        win.safe_click(x, y)?;
+        ms(400);
+        win.safe_type_keys(TYPED_OFF)?;
+        ms(300);
+        let (x, y) = win.save_center()?;
+        win.safe_click(x, y)?;
+        ms(500);
+        let (bx, by) = win.background_point()?;
+        win.safe_click(bx, by)?;
+        ms(400);
+        win.safe_right_click(bx, by)?;
+        ms(500);
+        Ok(())
+    })();
+    win.allow_focus(false);
+    win.set_red(false);
+    let field_text = win.user_text().unwrap_or_default();
+    let (bundle, report) = stop(r)?;
+    acted?;
+    let all = steps(&report.recording);
+    let titles: Vec<String> = all.iter().map(|s| s.title.clone()).collect();
+
+    // A11: keystrokes off.
+    let typed: Vec<&&StepBlock> = all.iter().filter(|s| s.title.starts_with("Typed in") || s.title == "Typed text").collect();
+    c.check("keystrokes off control: the typed text reached the field", field_text.contains(TYPED_OFF), "read back from the control");
+    c.check("keystrokes off: typing makes exactly one typing step with no text", typed.len() == 1, format!("titles: {titles:?}"));
+    c.check(
+        "keystrokes off: the typed text is in no step and no file",
+        !step_text(&report.recording).contains(TYPED_OFF) && files_containing(&bundle, TYPED_OFF).is_empty(),
+        format!("files containing it: {:?}", files_containing(&bundle, TYPED_OFF)),
+    );
+
+    // A3: titles.
+    let save = all.iter().find(|s| matches!(s.action, Action::Click { .. }) && s.title.contains("\"Save\""));
+    c.check(
+        "titles: the Save click names the button and the app",
+        save.is_some_and(|s| s.title.starts_with("Left-click \"Save\" button in ") && s.title.contains("capture")),
+        format!("titles: {titles:?}"),
+    );
+    let right: Vec<&&StepBlock> = all.iter().filter(|s| s.title.starts_with("Right-click")).collect();
+    c.check("titles: the right click is one \"Right-click\" step", right.len() == 1, format!("titles: {titles:?}"));
+    c.check("titles control: the window title was read back", window_title.len() > 5, "proves the next check could fail");
+    c.check(
+        "titles: the window title is in no step and no file",
+        !window_title.is_empty() && !step_text(&report.recording).contains(&window_title) && files_containing(&bundle, &window_title).is_empty(),
+        format!("titles: {titles:?}; files containing it: {:?}", files_containing(&bundle, &window_title)),
+    );
+
+    // A2: outline and click marker on the Save click's image.
+    let (sx, sy, sw, sh) = win.save_rect()?;
+    let (cx, cy) = win.save_center()?;
+    let m = monitor_of(cx, cy)?;
+    let ring = |f: &Frame, x: i32, y: i32| [(18, 0), (-18, 0), (0, 18), (0, -18)].iter().filter(|(dx, dy)| f.sample(x + dx, y + dy) == Some(MARKER)).count();
+    // Points on the outline band (1 to 3 px outside the button) on all four
+    // sides, and points 8 px outside, where nothing should be drawn. Top and
+    // bottom points sit near the left end, clear of the marker ring (radius
+    // 16 to 20 px around the centre), which is drawn over the outline.
+    let band = [(sx + 8, sy - 2), (sx + 8, sy + sh + 1), (sx - 2, sy + sh / 2), (sx + sw + 1, sy + sh / 2)];
+    let outside = [(sx + 8, sy - 8), (sx + 8, sy + sh + 8), (sx - 8, sy + sh / 2), (sx + sw + 8, sy + sh / 2)];
+    match save.and_then(|s| s.screenshot.as_deref()).map(|rel| load(&bundle, rel, &m)) {
+        Some(Ok(f)) => {
+            let on = band.iter().filter(|&&(x, y)| f.sample(x, y).is_some_and(|p| near(p, OUTLINE, 10))).count();
+            let off = outside.iter().filter(|&&(x, y)| f.sample(x, y).is_some_and(|p| near(p, OUTLINE, 10))).count();
+            c.check("outline: green on all four sides of the clicked button", on == 4, format!("{on}/4 band points green"));
+            c.check("outline control: no outline 8 px further out", off == 0, format!("{off}/4 outside points green"));
+            c.check("marker: a red ring around the click point", ring(&f, cx, cy) == 4, format!("{}/4 ring points red", ring(&f, cx, cy)));
+        }
+        other => c.check("outline: the Save click has an image", false, format!("{:?}", other.map(|r| r.map(|_| ()).map_err(|e| e.to_string())))),
+    }
+    // Marker control: the first click (on the user field) has no ring at the Save button.
+    let first = all.iter().find(|s| matches!(s.action, Action::Click { .. }));
+    match first.and_then(|s| s.screenshot.as_deref()).map(|rel| load(&bundle, rel, &m)) {
+        Some(Ok(f)) => c.check("marker control: no ring at the Save button in another click's image", ring(&f, cx, cy) == 0, ""),
+        _ => c.check("marker control: the first click has an image", false, ""),
+    }
+    let (unref, missing) = orphans(&bundle, &report.recording);
+    c.check("titles: no image without a step, no step without its image", unref.is_empty() && missing.is_empty(), format!("unreferenced {unref:?}, missing {missing:?}"));
+    Ok(())
+}
+
 fn run(out: &Path) -> Result<Checks> {
     let mut c = Checks { lines: Vec::new(), passed: 0, failed: 0 };
     std::fs::create_dir_all(out)?;
@@ -772,6 +867,7 @@ fn run(out: &Path) -> Result<Checks> {
         before_state(&mut c, &win, &work, false)?;
         before_state(&mut c, &win, &work, true)?;
         let images = password(&mut c, &win, &work, &crop_out)?;
+        titles_typing_outline(&mut c, &win, &work)?;
         window_changes_after_click(&mut c, &win, &work)?;
         fail_closed(&mut c, &win, &work, images)?;
         timeout_and_recovery(&mut c, &win, &work)?;

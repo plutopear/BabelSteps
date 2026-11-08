@@ -149,6 +149,27 @@ impl TestWindow {
     pub fn pass_rect(&self) -> Result<(i32, i32, i32, i32)> {
         Ok(Self::xywh(self.control_rect(ID_PASS)?))
     }
+    /// The window's own title, read back from the window (it is set from a
+    /// literal in `create_window`).
+    pub fn title(&self) -> String {
+        let mut buf = [0u16; 256];
+        let n = unsafe { GetWindowTextW(self.handle(), &mut buf) };
+        String::from_utf16_lossy(&buf[..n.max(0) as usize])
+    }
+    pub fn save_rect(&self) -> Result<(i32, i32, i32, i32)> {
+        Ok(Self::xywh(self.control_rect(ID_SAVE)?))
+    }
+
+    /// The text in the user name field, read from the control itself (a control
+    /// for checks that typed text reached the field).
+    pub fn user_text(&self) -> Result<String> {
+        unsafe {
+            let child = GetDlgItem(Some(self.handle()), ID_USER)?;
+            let mut buf = [0u16; 256];
+            let n = GetWindowTextW(child, &mut buf);
+            Ok(String::from_utf16_lossy(&buf[..n.max(0) as usize]))
+        }
+    }
 
     /// Screen rectangle of the client area (inside the frame) as (x, y, w, h).
     /// Crops use this: the outer rectangle includes a margin that shows
@@ -187,6 +208,19 @@ impl TestWindow {
     /// Click only if this window is what is actually under the point.
     pub fn safe_click(&self, x: i32, y: i32) -> Result<()> {
         click_if_root(self.hwnd, x, y)
+    }
+
+    /// A right click, with the same check. Only for points on the plain
+    /// background, where a right click opens no menu.
+    pub fn safe_right_click(&self, x: i32, y: i32) -> Result<()> {
+        for _ in 0..50 {
+            if root_at(x, y) == self.hwnd {
+                click_button(x, y, true);
+                return Ok(());
+            }
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Err(anyhow!("the test window is covered at ({x}, {y}); not clicking"))
     }
 
     /// Type lowercase letters and digits as real key presses (virtual keys, the
@@ -425,6 +459,11 @@ pub fn type_if_foreground(root: isize, text: &str) -> Result<()> {
 /// Move, press, release and move back as one `SendInput` call, so real mouse
 /// movement cannot redirect the click and the cursor returns at once.
 fn click(x: i32, y: i32) {
+    click_button(x, y, false);
+}
+
+fn click_button(x: i32, y: i32, right: bool) {
+    let (down, up) = if right { (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) } else { (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP) };
     unsafe {
         let mut original = POINT::default();
         let _ = GetCursorPos(&mut original);
@@ -441,8 +480,8 @@ fn click(x: i32, y: i32) {
         let absolute = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         let inputs = [
             event(nx(x), ny(y), absolute),
-            event(0, 0, MOUSEEVENTF_LEFTDOWN),
-            event(0, 0, MOUSEEVENTF_LEFTUP),
+            event(0, 0, down),
+            event(0, 0, up),
             event(nx(original.x), ny(original.y), absolute),
         ];
         SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
