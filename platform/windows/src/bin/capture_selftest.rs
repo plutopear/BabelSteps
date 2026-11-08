@@ -644,6 +644,8 @@ fn lock_and_sleep(c: &mut Checks, win: &TestWindow, dir: &Path) -> Result<()> {
     ms(200);
     r.simulate_session(SessionEvent::Resume);
     ms(1200);
+    win.set_red(false); // The click made while asleep turned the window red.
+    ms(300);
     win.safe_click(bx, by)?; // 3: recorded.
     ms(400);
     let (bundle, report) = stop(r)?;
