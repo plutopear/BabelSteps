@@ -8,7 +8,7 @@
 //! escaped form (`&lt;u&gt;`) and are turned back into real tags only when exact.
 
 use crate::export::validate_image_path;
-use crate::markdown::{encode_path, WITHHELD_SENTENCE};
+use crate::markdown::{encode_path, first_block_repeats_title, WITHHELD_SENTENCE};
 use crate::export_options::{recorded_on_line, step_time, technical_details, ExportOptions, DETAILS_HEADING, DETAILS_STEPS_HEADING};
 use crate::model::{Block, CalloutKind, Recording};
 
@@ -153,7 +153,8 @@ pub fn to_html_with(rec: &Recording, opts: &ExportOptions) -> String {
     }
 
     let mut step_no = 0usize;
-    for block in &rec.blocks {
+    let skip = usize::from(first_block_repeats_title(rec));
+    for block in rec.blocks.iter().skip(skip) {
         match block {
             Block::Heading { level, text, .. } => {
                 let l = (*level).clamp(1, 6);
@@ -369,6 +370,19 @@ mod tests {
         assert_eq!(rich("one\ntwo"), "one<br>\ntwo");
         assert_eq!(rich("2 * 3"), "2 * 3");
         assert_eq!(rich("a & b"), "a &amp; b");
+    }
+
+    #[test]
+    fn first_block_h1_equal_to_title_gives_one_h1() {
+        let mut rec = Recording::new("r", "Guide", 0);
+        rec.blocks.push(Block::Heading { id: "h".into(), level: 1, text: "Guide".into() });
+        rec.blocks.push(Block::Text { id: "t".into(), text: "Intro.".into() });
+        assert_eq!(to_html(&rec).matches("<h1>").count(), 1);
+        // A different H1 is kept next to the title.
+        rec.blocks[0] = Block::Heading { id: "h".into(), level: 1, text: "Other".into() };
+        let html = to_html(&rec);
+        assert_eq!(html.matches("<h1>").count(), 2);
+        assert!(html.contains("<h1>Other</h1>"));
     }
 
     #[test]
