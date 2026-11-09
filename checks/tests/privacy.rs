@@ -86,7 +86,12 @@ fn product_rust_code_logs_and_prints_nothing() {
 
 #[test]
 fn frontend_logs_only_error_kinds() {
-    let files = files_under(&root().join("app/src"), &["ts", "js", "svelte"]);
+    // `*.test.ts` files run under Node and are never part of the bundle; they
+    // mock the console to check what the app logs.
+    let files: Vec<_> = files_under(&root().join("app/src"), &["ts", "js", "svelte"])
+        .into_iter()
+        .filter(|f| !label(f).ends_with(".test.ts"))
+        .collect();
     assert!(files.iter().any(|f| label(f) == "app/src/lib/api.ts"), "scan did not reach api.ts");
     let problems = files.iter().flat_map(|f| scan_frontend_logging(&label(f), &read(f))).collect();
     fail_on(problems, "console output in the frontend");
