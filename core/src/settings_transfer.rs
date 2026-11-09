@@ -202,7 +202,8 @@ impl Settings {
     }
 
     /// Put imported settings on top of these. Machine-specific settings keep
-    /// the current value. Every field is named, so a new one must be classified.
+    /// the current value, and the custom hide words and patterns are merged
+    /// (yours first, then the new ones from the file). Every field is named, so a new one must be classified.
     pub fn merge_import(&self, imported: Settings) -> Settings {
         let Settings {
             keep_screenshots,
@@ -221,8 +222,11 @@ impl Settings {
         out.hotkeys = hotkeys;
         out.close_to_tray = close_to_tray;
         out.show_window_titles = show_window_titles;
-        out.custom_words = custom_words;
-        out.custom_patterns = custom_patterns;
+        // The hide lists are added to, never replaced: an import (an older
+        // export, or someone else's file) must not switch off protection the
+        // user set up themselves.
+        out.custom_words = union(&self.custom_words, custom_words, |a, b| a.trim().to_lowercase() == b.trim().to_lowercase());
+        out.custom_patterns = union(&self.custom_patterns, custom_patterns, |a, b| a == b);
         out
     }
 
@@ -255,8 +259,22 @@ impl Settings {
     /// settings without changing `self`; the caller saves them through the
     /// normal save path.
     pub fn import_json(&self, text: &str) -> Result<Settings, SettingsError> {
-        Ok(self.merge_import(Settings::from_json_strict(text)?))
+        let merged = self.merge_import(Settings::from_json_strict(text)?);
+        // Merging can push a list past its limit; refuse rather than drop entries.
+        merged.validate().map_err(SettingsError::Invalid)?;
+        Ok(merged)
     }
+}
+
+/// `current` followed by the entries of `added` that are not already in it.
+fn union(current: &[String], added: Vec<String>, same: impl Fn(&str, &str) -> bool) -> Vec<String> {
+    let mut out = current.to_vec();
+    for entry in added {
+        if !out.iter().any(|e| same(e, &entry)) {
+            out.push(entry);
+        }
+    }
+    out
 }
 
 fn field<'a>(obj: &'a Map<String, Value>, name: &'static str) -> Result<&'a Value, SettingsError> {
@@ -410,16 +428,54 @@ mod tests {
     }
 
     #[test]
-    fn merge_replaces_every_exported_setting() {
+    fn merge_replaces_every_exported_setting_except_the_hide_lists() {
         let current = Settings {
             keep_screenshots: Some(3),
             ..Settings::default()
         };
         assert_eq!(current.merge_import(custom()), custom());
-        assert_eq!(
-            custom().merge_import(Settings::default()),
-            Settings::default()
-        );
+        // Importing the defaults switches the other settings back but must not
+        // empty the user's own hide lists.
+        let mine = custom();
+        let merged = mine.merge_import(Settings::default());
+        assert_eq!(merged.custom_words, mine.custom_words);
+        assert_eq!(merged.custom_patterns, mine.custom_patterns);
+        assert_eq!(Settings { custom_words: vec![], custom_patterns: vec![], ..merged }, Settings::default());
+        let mut other = Settings::default();
+        other.show_capture_border = !mine.show_capture_border;
+        let merged = mine.merge_import(other.clone());
+        assert_eq!(merged.show_capture_border, other.show_capture_border);
+        assert_eq!(merged.custom_words, mine.custom_words);
+        assert_eq!(merged.custom_patterns, mine.custom_patterns);
+    }
+
+    #[test]
+    fn import_adds_hide_entries_without_duplicates_and_keeps_the_users_first() {
+        let mut mine = Settings::default();
+        mine.custom_words = vec!["Falcon".into(), "Acme".into()];
+        mine.custom_patterns = vec![r"\bAC-\d{4}\b".into()];
+        let mut file = Settings::default();
+        file.custom_words = vec!["acme ".into(), "Orion".into()];
+        file.custom_patterns = vec![r"\bAC-\d{4}\b".into(), r"ZX-\d+".into()];
+        let merged = mine.import_json(&file.to_export_json()).unwrap();
+        assert_eq!(merged.custom_words, ["Falcon", "Acme", "Orion"]);
+        assert_eq!(merged.custom_patterns, [r"\bAC-\d{4}\b", r"ZX-\d+"]);
+        // An older export with no lists at all leaves the user's lists alone.
+        let mut doc: Value = serde_json::from_str(&Settings::default().to_export_json()).unwrap();
+        doc.as_object_mut().unwrap().remove("customWords");
+        doc.as_object_mut().unwrap().remove("customPatterns");
+        assert_eq!(mine.import_json(&doc.to_string()).unwrap().custom_words, mine.custom_words);
+    }
+
+    #[test]
+    fn import_that_would_overfill_a_hide_list_is_refused_not_trimmed() {
+        let mut mine = Settings::default();
+        mine.custom_words = (0..crate::settings::MAX_CUSTOM_ENTRIES).map(|i| format!("mine{i}")).collect();
+        let mut file = Settings::default();
+        file.custom_words = vec!["one-too-many".into()];
+        let err = mine.import_json(&file.to_export_json()).expect_err("must be refused");
+        assert!(matches!(err, SettingsError::Invalid(_)), "{err:?}");
+        assert_eq!(mine.custom_words.len(), crate::settings::MAX_CUSTOM_ENTRIES, "the user's list is untouched");
     }
 
     #[test]

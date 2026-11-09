@@ -665,6 +665,17 @@ mod tests {
     }
 
     #[test]
+    fn custom_words_with_accents_and_symbols_match_literally() {
+        let rules = CustomRules::new(["Acmé", "C++", "a.b"], [] as [&str; 0]).unwrap();
+        assert_eq!(scrub("visit ACMÉ today", &rules), "visit [custom] today");
+        assert_eq!(scrub("acméa", &rules), "acméa");
+        // Regex characters in a word are literal: "C++" is not "one or more C".
+        assert_eq!(scrub("we use C++ here", &rules), "we use [custom] here");
+        assert_eq!(scrub("we use CCC here", &rules), "we use CCC here");
+        assert_eq!(scrub("a.b and axb", &rules), "[custom] and axb");
+    }
+
+    #[test]
     fn custom_regexes_match() {
         let rules = CustomRules::new([] as [&str; 0], [r"PROJ-[0-9]+"]).unwrap();
         assert_eq!(scrub("see PROJ-42 now", &rules), "see [custom] now");
