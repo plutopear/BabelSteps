@@ -156,7 +156,13 @@ fn run_driver(work: &Path, mode: &str) -> Result<bool> {
     println!("READY: click in the password box, the user name box and the empty green area, 2 times each; then create the stop file");
 
     let end = Instant::now() + Duration::from_secs(10 * 60);
+    // The panel warning is driven by this status flag: sample it while the owner works in the window.
+    let (mut samples_up, mut samples_total) = (0u32, 0u32);
     while !stop_file.exists() && Instant::now() < end {
+        samples_total += 1;
+        if r.status().elevated_in_front {
+            samples_up += 1;
+        }
         ms(300);
     }
     ms(500);
@@ -218,6 +224,18 @@ fn run_driver(work: &Path, mode: &str) -> Result<bool> {
         report.hooks.rehooks,
         report.status.warnings
     );
+    // Only meaningful when the recorder is not itself elevated (an elevated recorder can open the token, so no warning is wanted).
+    let warn_expected = info.elevated && !is_elevated();
+    println!(
+        "warning flag raised in {samples_up} of {samples_total} samples while the test window was in use (window elevated={}, recorder elevated={})",
+        info.elevated,
+        is_elevated()
+    );
+    if warn_expected {
+        println!("WARNING CHECK: {}", if samples_up > 0 { "PASS (the panel would show the administrator warning)" } else { "FAIL (the flag never came up)" });
+    } else {
+        println!("WARNING CHECK: {}", if samples_up == 0 { "PASS (no warning, as wanted)" } else { "FAIL (a warning was raised when none was wanted)" });
+    }
     let path = bundle.path().to_path_buf();
     drop(bundle);
     let _ = std::fs::remove_dir_all(work.join("rec"));
