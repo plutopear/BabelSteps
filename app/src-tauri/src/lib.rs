@@ -39,6 +39,8 @@ pub fn run() {
             recording::stop_recording,
             recording::clear_notice,
             recording::get_settings,
+            recording::scan_recording,
+            recording::hide_finding,
             recording::save_settings,
             recording::export_settings,
             recording::import_settings,
