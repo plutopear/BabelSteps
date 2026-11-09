@@ -48,7 +48,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | C4 | Recordings stored in a user-chosen folder, with an in-app library to browse, rename, and delete. | P0 |
 | C5 | Light and dark themes that follow the OS setting. | P1 |
 | C6 | The app itself is keyboard-navigable and screen-reader friendly. | P1 |
-| C7 | Settings are stored locally and can be exported and imported. Built 2026-11-08 (PR #27): a JSON file including hotkeys; import refuses bad files without quoting them and lists any privacy-weakening setting the file switches on. The dialogs have not been clicked on a real desktop. | P2 |
+| C7 | Settings are stored locally and can be exported and imported. Built 2026-11-08 (PR #27): a JSON file including hotkeys; import refuses bad files without quoting them and lists any privacy-weakening setting the file switches on. Decided Q32: an import keeps the user's existing custom hide-words and patterns, adds the file's without duplicates, and is refused if the list would pass 100 entries (PR #39, pending). The dialogs have not been clicked on a real desktop. | P2 |
 
 ## D. Non-functional targets (proposed; validate in M1)
 
