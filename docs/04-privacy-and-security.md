@@ -92,7 +92,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs these on every pull request and
 | Source and config scans | Socket or HTTP APIs in Rust code (`TcpStream`, `UdpSocket`, WinSock, WinHTTP, `Windows.Web.Http`); `windows` crate networking features; `fetch`, `WebSocket` or any `http(s)://` address in the frontend; a content security policy that names any outside source; Tauri permissions beyond the folder and save pickers | `checks/tests/privacy.rs`, part of `cargo test` |
 | No-network dependency check | Networking crates, Tauri plugins that can reach the network, tokio's `net` feature, for Windows, macOS and Linux builds | `no-network.ps1` (Windows) |
 | Runtime socket test | Any network socket opened while the core tests build, save, reload, redact and export recordings | `scripts/ci/no-socket-at-runtime.sh` (Linux, under `strace`) |
-| Linux core tests, privacy scans, UI type check | The same Rust tests and source scans as the Windows job, plus the app's type check, on Linux (PR #24). Formatting and lint checks are not included | `.github/workflows/ci.yml` |
+| Linux core tests, privacy scans, UI type check and tests | The same Rust tests and source scans as the Windows job, plus the app's type check and its Node tests, on Linux (PR #24; the Node tests were added in PR #41). Formatting and lint checks are not included | `.github/workflows/ci.yml` |
 
 Every scan and the runtime test first prove they can fail: each scanner is tested on a planted leak, and the runtime test checks that it catches a program that opens a socket before it trusts a pass.
 
