@@ -68,11 +68,12 @@ jobs:
       - name: Core and privacy-scan tests
         run: cargo test -p babelsteps-core -p babelsteps-privacy-checks --locked
       # Nothing else type-checks the Svelte and TypeScript code.
-      - name: UI type check and build
+      - name: UI type check, tests and build
         working-directory: app
         run: |
           npm ci
           npm run check
+          npm test
           npm run build
 
   linux-runtime:
