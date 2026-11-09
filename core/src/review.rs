@@ -656,14 +656,16 @@ mod tests {
                 .join("\n"),
             format!("{:?}", found[0]),
         ];
-        for s in &shown {
-            for secret in secrets {
-                assert!(!s.contains(secret), "{secret} leaked into {s}");
+        // Failure messages name the output and the secret's position only, so a
+        // failing run cannot itself print planted text.
+        for (n, s) in shown.iter().enumerate() {
+            for (i, secret) in secrets.iter().enumerate() {
+                assert!(!s.contains(secret), "secret {i} leaked into output {n}");
             }
             // Not even a fragment the user would recognize.
             assert!(
                 !s.contains("sentinel") && !s.contains("Zebra") && !s.contains("98765"),
-                "{s}"
+                "a recognizable fragment leaked into output {n}"
             );
         }
         // The control: the planted text is in the document, and the labels are real.
@@ -675,8 +677,11 @@ mod tests {
         }
         assert_eq!(found[0].preview, "s…m");
         let json = serde_json::to_string(&found).unwrap();
-        for secret in secrets {
-            assert!(!json.contains(secret), "{secret} leaked into the wire form");
+        for (i, secret) in secrets.iter().enumerate() {
+            assert!(
+                !json.contains(secret),
+                "secret {i} leaked into the wire form"
+            );
         }
     }
 
