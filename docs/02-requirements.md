@@ -32,11 +32,11 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | B7 | Blur or black-out regions on any screenshot before export. | P1 |
 | B8 | Export to **PDF** on US Letter pages. A header and footer (title and page number) are an export option, off by default (Q7). | P0 |
 | B9 | Export to **Markdown** (text file plus an `images/` folder). | P0 |
-| B10 | Export to single-file HTML. Built 2026-11-08 (PR #30), pulled forward from "Later" by the owner: a third export choice, pictures embedded and redacted, no external references. Not opened in a browser from the real app yet. | P2 |
+| B10 | Export to single-file HTML. Built 2026-11-08 (PR #30), pulled forward from "Later" by the owner (still rated P2 in this table): a third export choice, pictures embedded and redacted, no external references. Not opened in a browser from the real app yet. | P2 |
 | B11 | Keyboard shortcut to add a manual step or note while recording. | P1 |
 | B12 | Automatic redaction of passwords: every password field in any visible window on the captured screen is blacked out at capture on every step, and the original pixels are never stored. If the check fails or times out, the screenshot is withheld. | P0 |
 | B13 | Automatic detection and redaction of PII and secrets in typed text and on screenshots (emails, phones, card numbers, ID numbers, IPs, API keys and tokens), using local-only detection (UI Automation text plus local OCR). Screenshot detection by local text recognition comes after the first release; M2 covers typed text plus manual review (Q27). | P1 |
-| B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. The custom words and patterns are built 2026-11-08 (PR #33; in Settings, applied to typed text, included in settings export; recording refuses to start if the saved rules cannot be built); a live recording that actually hides a custom word has not been run. The pre-export review itself is still being built. | P1 |
+| B14 | Review step before export: accept, remove, or add redaction boxes. A strict mode burns in redactions at capture. A user-editable list of custom words and patterns. The custom words and patterns are built 2026-11-08 (PR #33; in Settings, applied to typed text, included in settings export; recording refuses to start if the saved rules cannot be built); a live recording that actually hides a custom word has not been run. The pre-export scan is built (PR #37): the export dialog scans the whole document, including unsaved edits, for emails, phone numbers, card numbers, IP addresses, API-key-like tokens and the custom words, lists each with a "Hide it" button, warns but never blocks export, and never says the document is clean (an empty result reads "Nothing flagged. Detection can miss things, so still review each step."). Screenshots are not scanned (Q27). Not run on a real desktop with planted data. | P1 |
 
 ## C. Cross-cutting
 
@@ -48,7 +48,7 @@ Items marked *(verify)* are based on public knowledge of Steps Recorder and must
 | C4 | Recordings stored in a user-chosen folder, with an in-app library to browse, rename, and delete. | P0 |
 | C5 | Light and dark themes that follow the OS setting. | P1 |
 | C6 | The app itself is keyboard-navigable and screen-reader friendly. | P1 |
-| C7 | Settings are stored locally and can be exported and imported. Built 2026-11-08 (PR #27): a JSON file including hotkeys; import refuses bad files without quoting them and lists any privacy-weakening setting the file switches on. The dialogs have not been clicked on a real desktop. | P2 |
+| C7 | Settings are stored locally and can be exported and imported. Built 2026-11-08 (PR #27): a JSON file including hotkeys; import refuses bad files without quoting them and lists any privacy-weakening setting the file switches on. Decided Q32: only the custom hide-words and patterns are protected (every other setting imports normally): an import keeps the user's existing ones, adds the file's without duplicates, and is refused if the list would pass 100 entries (PR #39, merged 2026-11-08; not tested on a real desktop). The dialogs have not been clicked on a real desktop. | P2 |
 
 ## D. Non-functional targets (proposed; validate in M1)
 
