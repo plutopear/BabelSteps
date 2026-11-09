@@ -467,6 +467,21 @@ mod tests {
     }
 
     #[test]
+    fn single_file_export_refuses_a_picture_that_is_not_png_or_jpeg_and_writes_nothing() {
+        // `prepare_all` re-encodes pictures, so a file that is not one fails there;
+        // either way the export must stop with an image error and leave no file.
+        let src = TempDir::new("src");
+        let out = TempDir::new("out");
+        std::fs::create_dir(src.path().join("images")).unwrap();
+        std::fs::write(src.path().join("images/step-001.png"), b"GIF89a not a png").unwrap();
+        let file = out.path().join("guide.html");
+        let r = export_single_html_with(&with_shot("images/step-001.png"), src.path(), &file, &ExportOptions::default());
+        assert!(matches!(r, Err(ExportError::Image(_))), "{r:?}");
+        assert!(!file.exists());
+        assert!(!out.path().join("guide.html.part").exists(), "no temp file left behind");
+    }
+
+    #[test]
     fn exporting_twice_into_one_folder_is_refused_the_second_time() {
         let src = TempDir::new("src");
         let out = TempDir::new("out");
