@@ -6,6 +6,7 @@ import type {
   ErrorKind,
   ExportChoices,
   ExportSummary,
+  Finding,
   LibraryListing,
   OpenedRecording,
   Recording,
@@ -91,6 +92,11 @@ export const api = {
     call<ExportSummary>("export_pdf", { outPath, headerFooter, choices }),
   exportSingleHtml: (outPath: string, choices: ExportChoices) =>
     call<ExportSummary>("export_single_html", { outPath, choices }),
+  /** B13/B14/E5: scans the given document (the editor's, saved or not) with the saved custom rules. */
+  scanRecording: (recording: Recording) => call<Finding[]>("scan_recording", { recording }),
+  /** Returns the document with that one finding replaced by a placeholder, or null if the text changed since the scan. */
+  hideFinding: (recording: Recording, finding: Finding) =>
+    call<Recording | null>("hide_finding", { recording, finding }),
   recordingStatus: () => call<RecordingStatus>("recording_status"),
   setEditorUnsaved: (unsaved: boolean) => call<void>("set_editor_unsaved", { unsaved }),
   startRecording: (keystrokes: boolean, target: CaptureTarget = { kind: "screen" }) =>
