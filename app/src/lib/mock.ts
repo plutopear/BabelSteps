@@ -150,6 +150,58 @@ function busy(): never {
   throw { kind: "busy", message: "" };
 }
 
+// Dev-only stand-in for core/src/review.rs: a few simple patterns, and offsets
+// in JS string units (the real backend uses bytes). Good enough to try the UI.
+type MockField = { kind: string; index?: number };
+function mockTexts(rec: Recording): { id: string | null; field: MockField; loc: string; get: () => string; set: (v: string) => void }[] {
+  const out: ReturnType<typeof mockTexts> = [];
+  out.push({ id: null, field: { kind: "document_title" }, loc: "document title", get: () => rec.title, set: (v) => (rec.title = v) });
+  let n = 0;
+  rec.blocks.forEach((b, i) => {
+    const pos = i + 1;
+    if (b.type === "step") {
+      n++;
+      out.push({ id: b.id, field: { kind: "title" }, loc: `Step ${n} title`, get: () => b.title, set: (v) => (b.title = v) });
+      out.push({ id: b.id, field: { kind: "description" }, loc: `Step ${n} description`, get: () => b.description, set: (v) => (b.description = v) });
+    } else if (b.type === "list") {
+      b.items.forEach((_, k) => out.push({ id: b.id, field: { kind: "list_item", index: k }, loc: `Block ${pos} list item ${k + 1}`, get: () => b.items[k], set: (v) => (b.items[k] = v) }));
+    } else if (b.type === "image") {
+      out.push({ id: b.id, field: { kind: "caption" }, loc: `Block ${pos} image caption`, get: () => b.caption, set: (v) => (b.caption = v) });
+    } else {
+      out.push({ id: b.id, field: { kind: b.type }, loc: `Block ${pos} ${b.type}`, get: () => b.text, set: (v) => (b.text = v) });
+    }
+  });
+  return out;
+}
+function mockMatches(text: string): { start: number; end: number; kind: string; label: string }[] {
+  const rules: [RegExp, string, string][] = [
+    [/[\w.+-]+@[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}/g, "email", "email address"],
+    [/\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g, "phone", "phone number"],
+    [/\b\d{1,3}(\.\d{1,3}){3}\b/g, "ip_address", "IP address"],
+    ...settings.customWords.filter(Boolean).map((w): [RegExp, string, string] => [new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "custom", "custom word or pattern"]),
+  ];
+  const out: ReturnType<typeof mockMatches> = [];
+  for (const [re, kind, label] of rules) {
+    for (const m of text.matchAll(re)) {
+      const start = m.index ?? 0;
+      if (text[start - 1] === "[" && text[start + m[0].length] === "]") continue; // already a placeholder
+      out.push({ start, end: start + m[0].length, kind, label });
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+function mockScan(rec: Recording) {
+  return mockTexts(rec).flatMap((t) =>
+    mockMatches(t.get()).map((m) => {
+      const s = t.get().slice(m.start, m.end);
+      return {
+        blockId: t.id, field: t.field, kind: m.kind, start: m.start, end: m.end,
+        kindLabel: m.label, location: t.loc, preview: s.length >= 8 ? `${s[0]}…${s[s.length - 1]}` : "…",
+      };
+    }),
+  );
+}
+
 export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promise<unknown> {
   await wait(60);
   if (R.active && ["save_recording", "open_recording", "create_recording", "close_recording",
@@ -161,6 +213,18 @@ export async function mockInvoke(cmd: string, a: Record<string, unknown>): Promi
       return structuredClone(MOCK_TARGETS);
     case "get_settings":
       return structuredClone(settings);
+    case "scan_recording":
+      return mockScan(a.recording as Recording);
+    case "hide_finding": {
+      const rec = structuredClone(a.recording as Recording);
+      const f = a.finding as ReturnType<typeof mockScan>[number];
+      const t = mockTexts(rec).find((x) => x.id === f.blockId && x.field.kind === f.field.kind && x.field.index === f.field.index);
+      const text = t?.get() ?? "";
+      if (!t || !mockMatches(text).some((m) => m.start === f.start && m.end === f.end && m.kind === f.kind)) return null;
+      const label = { email: "[email]", phone: "[phone]", ip_address: "[ip address]", custom: "[custom]" }[f.kind] ?? "[hidden]";
+      t.set(text.slice(0, f.start) + label + text.slice(f.end));
+      return rec;
+    }
     case "save_settings": {
       const n = (a.settings as typeof settings);
       if (n.keepScreenshots !== null && n.keepScreenshots < 1) throw { kind: "invalid_argument", message: "" };

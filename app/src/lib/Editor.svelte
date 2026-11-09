@@ -510,5 +510,5 @@
 {/if}
 
 {#if showExport}
-  <ExportDialog title={rec.title} {firstStepMs} {save} onclose={() => (showExport = false)} />
+  <ExportDialog title={rec.title} {firstStepMs} doc={rec} onreplace={(r) => (rec = r)} {save} onclose={() => (showExport = false)} />
 {/if}

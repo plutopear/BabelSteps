@@ -90,6 +90,27 @@ export interface OpenedRecording {
   recording: Recording;
 }
 
+/** B13/B14/E5 pre-export scan. Mirrors core/src/review.rs. A finding never holds the matched text. */
+export type FindingField =
+  | { kind: "document_title" | "title" | "description" | "heading" | "text" | "callout" | "caption" }
+  | { kind: "list_item"; index: number };
+
+export interface Finding {
+  /** Null for the document title. */
+  blockId: string | null;
+  field: FindingField;
+  kind: "email" | "phone" | "card_number" | "ssn" | "ip_address" | "token" | "private_key" | "custom";
+  /** Byte offsets into the field's UTF-8 text; the backend uses them, the page does not. */
+  start: number;
+  end: number;
+  /** Plain words, e.g. "email address". */
+  kindLabel: string;
+  /** Where it is, e.g. "Step 3 description". */
+  location: string;
+  /** First and last character of a long match, else an ellipsis. */
+  preview: string;
+}
+
 /** Export options (PSR-2, PSR-6). Both are off by default. */
 export interface ExportChoices {
   stepTimes: boolean;
