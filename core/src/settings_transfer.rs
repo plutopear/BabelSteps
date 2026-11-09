@@ -7,7 +7,7 @@
 //! Nothing is applied on a rejection, and error messages name fields and
 //! actions that this code knows, never anything quoted from the file.
 
-use crate::settings::{HotkeySettings, HotkeySpec, Settings};
+use crate::settings::{HotkeySettings, HotkeySpec, Settings, MAX_CUSTOM_ENTRIES};
 use serde_json::{json, Map, Value};
 use std::fmt;
 
@@ -227,6 +227,9 @@ impl Settings {
         // user set up themselves.
         out.custom_words = union(&self.custom_words, custom_words, |a, b| a.trim().to_lowercase() == b.trim().to_lowercase());
         out.custom_patterns = union(&self.custom_patterns, custom_patterns, |a, b| a == b);
+        // A full list takes no more entries; the rest of the import still applies.
+        out.custom_words.truncate(MAX_CUSTOM_ENTRIES);
+        out.custom_patterns.truncate(MAX_CUSTOM_ENTRIES);
         out
     }
 
@@ -259,10 +262,29 @@ impl Settings {
     /// settings without changing `self`; the caller saves them through the
     /// normal save path.
     pub fn import_json(&self, text: &str) -> Result<Settings, SettingsError> {
-        let merged = self.merge_import(Settings::from_json_strict(text)?);
-        // Merging can push a list past its limit; refuse rather than drop entries.
+        self.import_json_with_notes(text).map(|(settings, _)| settings)
+    }
+
+    /// Like `import_json`, plus plain-language notes for the person: weakened
+    /// privacy defaults, and hide entries from the file that did not fit.
+    pub fn import_json_with_notes(&self, text: &str) -> Result<(Settings, Vec<String>), SettingsError> {
+        let imported = Settings::from_json_strict(text)?;
+        let merged = self.merge_import(imported.clone());
+        // Everything else in the file is applied even when the hide lists are full.
         merged.validate().map_err(SettingsError::Invalid)?;
-        Ok(merged)
+        let mut notes: Vec<String> = self.privacy_notes(&merged).into_iter().map(String::from).collect();
+        let missing = |want: &[String], have: &[String], same: &dyn Fn(&str, &str) -> bool| {
+            want.iter().filter(|w| !have.iter().any(|h| same(h, w))).count()
+        };
+        let words = missing(&imported.custom_words, &merged.custom_words, &|a, b| a.trim().to_lowercase() == b.trim().to_lowercase());
+        let patterns = missing(&imported.custom_patterns, &merged.custom_patterns, &|a, b| a == b);
+        if words + patterns > 0 {
+            notes.push(format!(
+                "{} hide word(s) or pattern(s) from the file were not added because that list already holds {MAX_CUSTOM_ENTRIES}. Your own entries are all still there.",
+                words + patterns
+            ));
+        }
+        Ok((merged, notes))
     }
 }
 
@@ -468,14 +490,26 @@ mod tests {
     }
 
     #[test]
-    fn import_that_would_overfill_a_hide_list_is_refused_not_trimmed() {
+    fn a_full_hide_list_takes_no_more_but_the_rest_of_the_import_still_applies() {
         let mut mine = Settings::default();
-        mine.custom_words = (0..crate::settings::MAX_CUSTOM_ENTRIES).map(|i| format!("mine{i}")).collect();
+        mine.custom_words = (0..MAX_CUSTOM_ENTRIES).map(|i| format!("mine{i}")).collect();
         let mut file = Settings::default();
-        file.custom_words = vec!["one-too-many".into()];
-        let err = mine.import_json(&file.to_export_json()).expect_err("must be refused");
-        assert!(matches!(err, SettingsError::Invalid(_)), "{err:?}");
-        assert_eq!(mine.custom_words.len(), crate::settings::MAX_CUSTOM_ENTRIES, "the user's list is untouched");
+        file.custom_words = vec!["one-too-many".into(), "mine3".into()];
+        file.show_capture_border = !mine.show_capture_border;
+        file.keep_screenshots = Some(7);
+        let (merged, notes) = mine.import_json_with_notes(&file.to_export_json()).unwrap();
+        // The user's own entries are all kept; the new one did not fit.
+        assert_eq!(merged.custom_words, mine.custom_words);
+        // Everything else in the file was applied.
+        assert_eq!(merged.show_capture_border, file.show_capture_border);
+        assert_eq!(merged.keep_screenshots, Some(7));
+        // Only the entry that was really left out is counted ("mine3" was already there).
+        let note = notes.iter().find(|n| n.contains("were not added")).expect("a note about the full list");
+        assert!(note.starts_with("1 hide word"), "{note}");
+        assert!(!note.contains("one-too-many"), "the note must not repeat the entry");
+        // Room to spare: no note about the lists.
+        let (_, notes) = Settings::default().import_json_with_notes(&file.to_export_json()).unwrap();
+        assert!(!notes.iter().any(|n| n.contains("were not added")));
     }
 
     #[test]

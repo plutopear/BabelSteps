@@ -932,9 +932,9 @@ pub fn import_settings(app: AppHandle, path: String) -> AppResult<Vec<String>> {
     let text = String::from_utf8(bytes)
         .map_err(|_| AppError::new(ErrorKind::InvalidArgument, "This file is not a BabelSteps settings export."))?;
     let current = app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let merged = current.import_json(&text).map_err(|e| AppError::new(ErrorKind::InvalidArgument, e.to_string()))?;
-    let notes = current.privacy_notes(&merged);
-    let mut out: Vec<String> = notes.into_iter().map(String::from).collect();
+    let (merged, mut out) = current
+        .import_json_with_notes(&text)
+        .map_err(|e| AppError::new(ErrorKind::InvalidArgument, e.to_string()))?;
     out.extend(apply_settings(&app, merged)?);
     Ok(out)
 }
