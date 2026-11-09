@@ -7,6 +7,8 @@
 
 use crate::commands::{lock_current, AppState, OpenedRecording};
 use crate::error::{AppError, AppResult, ErrorKind};
+use babelsteps_core::model::Recording;
+use babelsteps_core::review::{self, Finding};
 use babelsteps_core::settings::{HotkeySettings, Settings};
 use babelsteps_core::storage::Bundle;
 use babelsteps_windows::hotkeys::{self, Hotkey};
@@ -824,6 +826,38 @@ pub fn load_settings(app: &AppHandle) {
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<RecState>().settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The saved custom words and patterns, for the pre-export scan. If they do not
+/// build, the scan must not run as if they were absent (the user would believe
+/// their words were checked), so this is an error. The message names no word.
+fn review_rules(app: &AppHandle) -> AppResult<babelsteps_core::pii::CustomRules> {
+    app.state::<RecState>()
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .custom_rules()
+        .map_err(|m| AppError::new(ErrorKind::InvalidArgument, format!("{m}. Fix it in Settings first")))
+}
+
+/// B13, B14, E5: scans the whole document the editor holds (saved or not) for
+/// sensitive text. Pure: it reads nothing from disk, changes nothing, and
+/// neither logs nor returns the matched text (findings hold a place, a kind
+/// and a masked hint). Detection misses things, so an empty list proves nothing.
+#[tauri::command]
+pub fn scan_recording(app: AppHandle, recording: Recording) -> AppResult<Vec<Finding>> {
+    let custom = review_rules(&app)?;
+    Ok(review::scan(&recording, &custom))
+}
+
+/// Replaces one finding's text with its placeholder and returns the new
+/// document for the editor to adopt through its normal edit and save path.
+/// `None` means the finding no longer matches (the text changed since the
+/// scan); nothing is changed then and the caller scans again.
+#[tauri::command]
+pub fn hide_finding(app: AppHandle, recording: Recording, finding: Finding) -> AppResult<Option<Recording>> {
+    let custom = review_rules(&app)?;
+    Ok(review::redact_finding(&recording, &finding, &custom))
 }
 
 /// Saves and applies. Returns warnings to show: shortcuts another app already
