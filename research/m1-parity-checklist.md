@@ -15,6 +15,7 @@ The M1 exit test (`docs/05-roadmap.md`): every Steps Recorder behavior and every
 **Owner clicks, or an owner-approved run:**
 - Done 2026-11-08 (hand test, `research/m1-results.md`): tray Show, Quit, double-click, the red frame and the retention limit. Not stated: that the tray menu's Stop worked (the owner was asked to use it).
 - Pick a non-default library folder (C4).
+- Added 2026-11-09, to do, not tested, owner clicks (details in `docs/05-roadmap.md`, M1 "Next", item 1): a template with a recording (E3), settings export and import including refused UNC and non-`.json` paths (C7), editor lists, formatting and Merge with next step then Undo (B6), single-file HTML opened in Edge with nothing loading (B10), a custom hide word hidden in a recording (B14), and the pre-export scan flagging an email (B13). Headless checks passed on 2026-11-09 and count as Partial evidence only. The capture self-test also needs a re-run after PR #25, with the owner's OK.
 - Sign out during a recording with the window closed (tray mode).
 
 **Done 2026-11-08 (live app 21 of 22, tray 24 of 24):** start, pause, notes, stop and remapped shortcuts; settings saved and applied; D1 met in tray mode.
