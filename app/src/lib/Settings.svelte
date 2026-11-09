@@ -303,8 +303,8 @@
       <p class="hint">
         Export saves your saved settings, including the shortcuts, as a file you can keep or copy to another
         PC. It leaves out anything specific to this PC, such as folders. Import replaces your settings with the
-        file's and saves them right away, after checking them like a normal save. A file that fails the check
-        changes nothing. Changes you have typed in this window and not saved are replaced.
+        file's, except that your hide words and patterns are kept and the file's are added to them. It saves
+        right away, after checking them like a normal save. A file that fails the check changes nothing. Changes you have typed in this window and not saved are replaced.
       </p>
       <div class="actions">
         <button type="button" onclick={exportSettings} disabled={!loaded || transferring}>Export settings…</button>
