@@ -50,11 +50,21 @@ pub fn foreground_is_elevated_for_us() -> bool {
         if pid == 0 || pid == GetCurrentProcessId() {
             return false;
         }
-        // Querying limited information works for elevated processes too. A normal
-        // process can usually read the token of an elevated one, so ask the token
-        // itself (measured 2026-11-08: refusing to open it was NOT the signal, the
-        // first version of this check never fired on an administrator window).
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+        // Measured 2026-11-08: refusing to open the token is NOT the signal an
+        // elevated window gives (the first version of this check never fired on
+        // an administrator window); the token itself says whether it is elevated.
+        process_out_of_reach(pid).unwrap_or(false)
+    }
+}
+
+/// Whether the process with this id is out of reach for a recorder that is not
+/// elevated: its token says elevated, or the token cannot be opened at all.
+/// `None` when the process cannot be looked at (gone, or access refused to even
+/// ask). Does not look at whether this process is elevated itself.
+fn process_out_of_reach(pid: u32) -> Option<bool> {
+    unsafe {
+        // Querying limited information works for elevated processes too.
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut token = HANDLE::default();
         let verdict = if OpenProcessToken(process, TOKEN_QUERY, &mut token).is_err() {
             // Refused outright: out of reach for us, so treat it as out of reach.
@@ -68,7 +78,7 @@ pub fn foreground_is_elevated_for_us() -> bool {
             ok && e.TokenIsElevated != 0
         };
         let _ = CloseHandle(process);
-        verdict
+        Some(verdict)
     }
 }
 
@@ -99,5 +109,36 @@ mod tests {
     fn the_warning_flag_starts_off() {
         // A fresh status must not warn before the first look at the front window.
         assert!(!crate::pipeline::RecorderStatus::default().elevated_in_front);
+    }
+
+    #[test]
+    fn this_process_reads_as_elevated_exactly_when_it_is_elevated() {
+        // The bug this guards against: a check that only looked for a refused
+        // token. A process's own token always opens, so only the elevation flag
+        // can make this true. Windows CI runs elevated, so there it must be
+        // `Some(true)`; on a normal desktop it must be `Some(false)`.
+        let me = unsafe { GetCurrentProcessId() };
+        assert_eq!(process_out_of_reach(me), Some(is_elevated()));
+    }
+
+    #[test]
+    fn another_process_with_our_rights_reads_the_same_way() {
+        // A child inherits our token, so reading *another* process's token
+        // (the path a real administrator window takes) must agree with ours.
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "6", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("start a child process");
+        let seen = process_out_of_reach(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(seen, Some(is_elevated()));
+    }
+
+    #[test]
+    fn a_process_that_does_not_exist_cannot_be_looked_at() {
+        assert_eq!(process_out_of_reach(u32::MAX), None);
+        assert_eq!(process_out_of_reach(0), None);
     }
 }
