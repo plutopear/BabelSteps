@@ -7,7 +7,7 @@ version.workspace = true
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 regex = "1.13.1"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 
